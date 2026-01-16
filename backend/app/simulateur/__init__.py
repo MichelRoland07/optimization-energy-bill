@@ -1,0 +1,3 @@
+"""
+Simulateur de tarifs module
+"""
