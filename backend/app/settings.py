@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     debug: bool = True
 
     # Database
-    database_url: str = "sqlite:///./energy_opt.db"
+    database_url: str = "sqlite:///./optimisation_sabc.db"
 
     # JWT
     secret_key: str = "your-secret-key-change-this-in-production"
