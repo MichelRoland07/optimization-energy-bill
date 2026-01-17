@@ -3,6 +3,7 @@ Data upload and processing routes
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
+from typing import Optional
 import pandas as pd
 from io import BytesIO
 
@@ -10,9 +11,11 @@ from ..auth.models import User
 from ..auth.utils import get_current_user
 from ..database import get_db
 from ..core import calculs, synthese as synthese_module
+from ..core.config import type_table, tarifs_small, tarifs_big
 from .schemas import (
     UploadResponse, ServiceInfo, ServiceSelection,
-    ServiceSelectionResponse, SyntheseResponse, GraphiquesResponse, ProfilClientResponse
+    ServiceSelectionResponse, SyntheseResponse, GraphiquesResponse,
+    ProfilClientResponse, TarifsProfilInfo
 )
 from .session_manager import session_manager
 
@@ -29,6 +32,72 @@ def validate_required_columns(df: pd.DataFrame) -> bool:
         'AMOUNT_WITHOUT_TAX', 'AMOUNT_WITH_TAX'
     ]
     return all(col in df.columns for col in required_columns)
+
+
+def calculer_tarifs_profil(puissance: float, annee: int) -> TarifsProfilInfo:
+    """
+    Calculate detailed tariffs for client profile display
+    Reproduces exactly Streamlit's tariff detection and display
+
+    Args:
+        puissance: Subscribed power in kW
+        annee: Year for tariff calculation
+
+    Returns:
+        TarifsProfilInfo with all tariff details
+    """
+    # Determine category and coefficients
+    if puissance < 3000:
+        coeff = 1.05 ** (annee - 2023)  # 5% per year
+        categorie = "Petit client"
+    else:
+        coeff = 1.10 ** (annee - 2023)  # 10% per year
+        categorie = "Gros client"
+
+    # Detect type using type_table
+    row_type = type_table[
+        (type_table['min'] <= puissance) &
+        (puissance < type_table['max'])
+    ]
+
+    if row_type.empty:
+        # Fallback
+        type_tarifaire = 1 if puissance < 3000 else 6
+        intervalle_min = 0.0
+        intervalle_max = 10000.0
+    else:
+        type_tarifaire = int(row_type.iloc[0]['type'])
+        intervalle_min = float(row_type.iloc[0]['min'])
+        intervalle_max = float(row_type.iloc[0]['max'])
+
+    # Determine plage horaire and get tariffs (default to >400h as in Streamlit)
+    plage_horaire = ">400h"
+
+    if puissance < 3000:
+        # Small client
+        idx = type_tarifaire - 1
+        # Use >400h as default
+        tarif_hc = tarifs_small['sup_400']['off'][idx] * coeff if tarifs_small['sup_400']['off'][idx] != '' else 0.0
+        tarif_hp = tarifs_small['sup_400']['peak'][idx] * coeff if tarifs_small['sup_400']['peak'][idx] != '' else 0.0
+        prime_fixe = tarifs_small['sup_400']['pf'][idx] * coeff if tarifs_small['sup_400']['pf'][idx] != '' else 0.0
+    else:
+        # Big client
+        idx = type_tarifaire - 6
+        # Use >400h as default
+        tarif_hc = tarifs_big['sup_400']['off'][idx] * coeff
+        tarif_hp = tarifs_big['sup_400']['peak'][idx] * coeff
+        prime_fixe = tarifs_big['sup_400']['pf'][idx] * coeff
+
+    return TarifsProfilInfo(
+        type_tarifaire=type_tarifaire,
+        categorie=categorie,
+        plage_horaire=plage_horaire,
+        intervalle_min=intervalle_min,
+        intervalle_max=intervalle_max,
+        tarif_hc=round(tarif_hc, 3),
+        tarif_hp=round(tarif_hp, 3),
+        prime_fixe=round(prime_fixe, 2)
+    )
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -328,15 +397,20 @@ async def get_graphiques(
 
 @router.get("/profil", response_model=ProfilClientResponse)
 async def get_profil_client(
+    year: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Get client profile information
 
+    Args:
+        year: Optional year to filter data (e.g., 2025, 2024, 2023).
+              If not provided, uses the most recent year available.
+
     Returns:
     - Administrative info (name, service, region, division, agence)
-    - Energetic profile summary
+    - Energetic profile summary for selected year
     - Multi-year consumption profile graph data
     """
     # Get processed data
@@ -348,6 +422,9 @@ async def get_profil_client(
             detail="Aucune donnée disponible. Veuillez d'abord uploader un fichier."
         )
 
+    # Get available years (for frontend dropdown)
+    annees_disponibles = sorted(df['READING_DATE'].dt.year.unique(), reverse=True)
+
     # 1. Administrative Information
     infos_administratives = {
         "nom_client": str(df['CUST_NAME'].iloc[0]) if 'CUST_NAME' in df.columns else "N/A",
@@ -355,36 +432,68 @@ async def get_profil_client(
         "region": str(df['REGION'].iloc[0]) if 'REGION' in df.columns else "N/A",
         "division": str(df['DIVISION'].iloc[0]) if 'DIVISION' in df.columns else "N/A",
         "agence": str(df['AGENCE'].iloc[0]) if 'AGENCE' in df.columns else "N/A",
+        "annees_disponibles": [int(a) for a in annees_disponibles],  # ✅ AJOUT pour sélecteur
     }
 
-    # 2. Energetic Profile Summary
-    puissance_souscrite = float(df['SUBSCRIPTION_LOAD'].iloc[0])
-    puissance_max = float(df['PUISSANCE_ATTEINTE'].max())
-    puissance_min = float(df['PUISSANCE_ATTEINTE'].min())
-    puissance_moy = float(df['PUISSANCE_ATTEINTE'].mean())
+    # 2. Energetic Profile Summary (ENRICHED with tariffs and HC/HP averages)
+    # ✅ AJOUT: Sélection année (EXACTEMENT comme Streamlit)
+    # If year not provided, use most recent year
+    if year is None:
+        annee_profil = int(df['READING_DATE'].dt.year.max())
+    else:
+        annee_profil = year
 
-    conso_max = float(df['MV_CONSUMPTION'].max())
-    conso_min = float(df['MV_CONSUMPTION'].min())
-    conso_moy = float(df['MV_CONSUMPTION'].mean())
+    # Filter data for selected year
+    df_annee = df[df['READING_DATE'].dt.year == annee_profil].copy()
+
+    if df_annee.empty:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Aucune donnée disponible pour l'année {annee_profil}"
+        )
+
+    # Calculate statistics for selected year ONLY
+    puissance_souscrite = float(df_annee['SUBSCRIPTION_LOAD'].iloc[0])
+    puissance_max = float(df_annee['PUISSANCE_ATTEINTE'].max())
+    puissance_min = float(df_annee['PUISSANCE_ATTEINTE'].min())
+    puissance_moy = float(df_annee['PUISSANCE_ATTEINTE'].mean())
+
+    conso_max = float(df_annee['MV_CONSUMPTION'].max())
+    conso_min = float(df_annee['MV_CONSUMPTION'].min())
+    conso_moy = float(df_annee['MV_CONSUMPTION'].mean())
+
+    # ✅ AJOUT: Consommations HC et HP moyennes (EXACTEMENT comme Streamlit)
+    df_temp = df_annee.copy()
+    df_temp['CONSO_OFF_PEAK'] = df_temp['ACTIVE_OFF_PEAK_IMP'] + df_temp['ACTIVE_OFF_PEAK_EXP']
+    df_temp['CONSO_PEAK'] = df_temp['ACTIVE_PEAK_IMP'] + df_temp['ACTIVE_PEAK_EXP']
+    conso_hc_moy = float(df_temp['CONSO_OFF_PEAK'].mean())
+    conso_hp_moy = float(df_temp['CONSO_PEAK'].mean())
 
     # HC/HP ratio
-    total_hc = float((df['ACTIVE_OFF_PEAK_IMP'] + df['ACTIVE_OFF_PEAK_EXP']).sum())
-    total_hp = float((df['ACTIVE_PEAK_IMP'] + df['ACTIVE_PEAK_EXP']).sum())
+    total_hc = float(df_temp['CONSO_OFF_PEAK'].sum())
+    total_hp = float(df_temp['CONSO_PEAK'].sum())
     total_energie = total_hc + total_hp
     ratio_hc = (total_hc / total_energie * 100) if total_energie > 0 else 0
     ratio_hp = (total_hp / total_energie * 100) if total_energie > 0 else 0
 
-    # Cos(φ) if available
+    # ✅ AJOUT: Détection type tarifaire et tarifs détaillés (EXACTEMENT comme Streamlit)
+    # Use selected year for tariff calculation
+    tarifs_info = calculer_tarifs_profil(puissance_souscrite, annee_profil)
+
+    # Cos(φ) if available (ENRICHED with nb_mois_sous_seuil) - for selected year
     cosphi_data = None
-    if 'COSPHI' in df.columns:
+    if 'COSPHI' in df_annee.columns:
+        nb_mois_sous_seuil = int((df_annee['COSPHI'] < 0.9).sum())
         cosphi_data = {
             "disponible": True,
-            "moyen": float(df['COSPHI'].mean()),
-            "min": float(df['COSPHI'].min()),
-            "max": float(df['COSPHI'].max()),
+            "moyen": float(df_annee['COSPHI'].mean()),
+            "min": float(df_annee['COSPHI'].min()),
+            "max": float(df_annee['COSPHI'].max()),
+            "nb_mois_sous_seuil": nb_mois_sous_seuil  # ✅ AJOUT
         }
 
     profil_energetique = {
+        "annee_selectionnee": annee_profil,  # ✅ AJOUT: année sélectionnée
         "puissance_souscrite": puissance_souscrite,
         "puissance_max": puissance_max,
         "puissance_min": puissance_min,
@@ -392,32 +501,180 @@ async def get_profil_client(
         "consommation_max": conso_max,
         "consommation_min": conso_min,
         "consommation_moyenne": conso_moy,
+        "conso_hc_moyenne": conso_hc_moy,  # ✅ AJOUT
+        "conso_hp_moyenne": conso_hp_moy,  # ✅ AJOUT
         "ratio_hc": ratio_hc,
         "ratio_hp": ratio_hp,
         "cosphi": cosphi_data,
+        # ✅ AJOUT: Tarifs détaillés (type, catégorie, HC, HP, PF)
+        "type_tarifaire": tarifs_info.type_tarifaire,
+        "categorie": tarifs_info.categorie,
+        "plage_horaire": tarifs_info.plage_horaire,
+        "tarif_hc": tarifs_info.tarif_hc,
+        "tarif_hp": tarifs_info.tarif_hp,
+        "prime_fixe": tarifs_info.prime_fixe,
+        "annee_tarifs": annee_profil
     }
 
-    # 3. Multi-year Consumption Profile
+    # 3. Multi-year Consumption Profile (ENRICHED with power series)
     df_sorted = df.sort_values('READING_DATE')
     annees = sorted(df['READING_DATE'].dt.year.unique(), reverse=True)
 
-    # Prepare data for multi-line graph (one line per year)
-    series_par_annee = []
+    # ✅ AJOUT: Prepare data for multi-line graphs (consommation + puissance)
+    series_consommation = []
+    series_puissance = []  # ✅ AJOUT: séries puissance multi-années
+
     for annee in annees:
         df_annee = df_sorted[df_sorted['READING_DATE'].dt.year == annee]
-        series_par_annee.append({
+
+        series_consommation.append({
             "annee": int(annee),
             "mois": df_annee['READING_DATE'].dt.month.tolist(),
             "consommation": df_annee['MV_CONSUMPTION'].tolist(),
         })
 
+        # ✅ AJOUT: Série puissance atteinte par année
+        series_puissance.append({
+            "annee": int(annee),
+            "mois": df_annee['READING_DATE'].dt.month.tolist(),
+            "puissance": df_annee['PUISSANCE_ATTEINTE'].tolist(),
+        })
+
     profil_consommation = {
         "annees": [int(a) for a in annees],
-        "series": series_par_annee,
+        "series_consommation": series_consommation,
+        "series_puissance": series_puissance,  # ✅ AJOUT
     }
+
+    # ✅ AJOUT: 4. Graphiques profil énergétique (3 graphiques Plotly-ready)
+    # Use selected year for energetic profile graphs (EXACTLY like Streamlit)
+    graphiques_profil_energetique = None
+    if not df_annee.empty:
+        # Prepare month labels
+        mois_noms = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin',
+                     'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
+        mois_labels = [mois_noms[int(m)-1] for m in df_annee['READING_DATE'].dt.month]
+
+        # Graph 1: Factures mensuelles TTC
+        graph_factures = {
+            "x": mois_labels,
+            "y": df_annee['AMOUNT_WITH_TAX'].tolist(),
+            "type": "bar",
+            "name": f"Facture TTC {annee_profil}",
+            "title": f"Facturation mensuelle TTC ({annee_profil})",
+            "xaxis_title": "Mois",
+            "yaxis_title": "Facture TTC (FCFA)"
+        }
+
+        # Graph 2: Puissances atteinte vs souscrite mensuelles
+        graph_puissances = {
+            "x": mois_labels,
+            "y_atteinte": df_annee['PUISSANCE_ATTEINTE'].tolist(),
+            "y_souscrite": [puissance_souscrite] * len(mois_labels),
+            "type": "line",
+            "title": f"Puissance atteinte vs souscrite ({annee_profil})",
+            "xaxis_title": "Mois",
+            "yaxis_title": "Puissance (kW)"
+        }
+
+        # Graph 3: Cos φ mensuels (si disponible)
+        graph_cosphi = None
+        if 'COSPHI' in df_annee.columns:
+            graph_cosphi = {
+                "x": mois_labels,
+                "y": df_annee['COSPHI'].tolist(),
+                "y_seuil": [0.9] * len(mois_labels),  # Ligne de seuil à 0.9
+                "type": "line",
+                "title": f"Facteur de puissance Cos φ ({annee_profil})",
+                "xaxis_title": "Mois",
+                "yaxis_title": "Cos φ"
+            }
+
+        graphiques_profil_energetique = {
+            "annee": annee_profil,
+            "graph_factures": graph_factures,
+            "graph_puissances": graph_puissances,
+            "graph_cosphi": graph_cosphi
+        }
 
     return ProfilClientResponse(
         infos_administratives=infos_administratives,
         profil_energetique=profil_energetique,
-        profil_consommation=profil_consommation
+        profil_consommation=profil_consommation,
+        graphiques_profil_energetique=graphiques_profil_energetique  # ✅ AJOUT
     )
+
+
+@router.get("/dashboard")
+async def get_dashboard(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get dashboard table for multi-service files
+    
+    Returns consolidated view of all services in uploaded file
+    Only available if multi-service file was uploaded
+    """
+    # Get raw data (before service selection)
+    df_raw = session_manager.get_raw_data(current_user.id)
+    
+    if df_raw is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune donnée uploadée. Veuillez d'abord uploader un fichier."
+        )
+    
+    # Detect services
+    services_unique = df_raw['SERVICE_NO'].unique()
+    
+    if len(services_unique) == 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ce fichier ne contient qu'un seul service. Le dashboard multi-services n'est pas disponible."
+        )
+    
+    # Build dashboard table
+    tableau_data = []
+    
+    for service_no in services_unique:
+        df_service = df_raw[df_raw['SERVICE_NO'] == service_no].copy()
+        
+        if not df_service.empty:
+            # Extract info
+            client_name = str(df_service['CUST_NAME'].iloc[0])
+            region = str(df_service['REGION'].iloc[0]) if 'REGION' in df_service.columns else "N/A"
+            division = str(df_service['DIVISION'].iloc[0]) if 'DIVISION' in df_service.columns else "N/A"
+            agence = str(df_service['AGENCE'].iloc[0]) if 'AGENCE' in df_service.columns else "N/A"
+            
+            # Date range
+            df_service['READING_DATE'] = pd.to_datetime(df_service['READING_DATE'])
+            date_min = df_service['READING_DATE'].min().strftime('%Y-%m-%d')
+            date_max = df_service['READING_DATE'].max().strftime('%Y-%m-%d')
+            
+            # Metrics
+            puissance_souscrite = float(df_service['SUBSCRIPTION_LOAD'].iloc[0])
+            puissance_max = float(df_service['PUISSANCE_ATTEINTE'].max())
+            conso_totale = float(df_service['MV_CONSUMPTION'].sum())
+            facture_totale = float(df_service['AMOUNT_WITH_TAX'].sum())
+            nb_lignes = len(df_service)
+            
+            tableau_data.append({
+                'SERVICE_NO': str(service_no),
+                'CLIENT_NAME': client_name,
+                'REGION': region,
+                'DIVISION': division,
+                'AGENCE': agence,
+                'DATE_DEBUT': date_min,
+                'DATE_FIN': date_max,
+                'NB_FACTURES': nb_lignes,
+                'PUISSANCE_SOUSCRITE': puissance_souscrite,
+                'PUISSANCE_MAX_ATTEINTE': puissance_max,
+                'CONSOMMATION_TOTALE': conso_totale,
+                'FACTURE_TOTALE': facture_totale
+            })
+    
+    return {
+        "nb_services": len(services_unique),
+        "tableau": tableau_data
+    }

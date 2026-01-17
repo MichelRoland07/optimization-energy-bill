@@ -84,13 +84,28 @@ class GraphiquesResponse(BaseModel):
     metriques: Dict[str, Any]
 
 
+class TarifsProfilInfo(BaseModel):
+    """Tariffs information for profile display"""
+    type_tarifaire: int
+    categorie: str  # "Petit client" ou "Gros client"
+    plage_horaire: str
+    intervalle_min: float
+    intervalle_max: float
+    tarif_hc: float
+    tarif_hp: float
+    prime_fixe: float
+
+
 class ProfilClientResponse(BaseModel):
     """Response for client profile endpoint"""
     # Administrative info
     infos_administratives: Dict[str, str]
 
-    # Energetic profile summary
+    # Energetic profile summary (enriched with tariffs)
     profil_energetique: Dict[str, Any]
 
-    # Consumption profile (multi-year graph data)
+    # Consumption profile (multi-year graph data with power series)
     profil_consommation: Dict[str, Any]
+
+    # 3 graphiques profil énergétique (Plotly-ready data)
+    graphiques_profil_energetique: Optional[Dict[str, Any]] = None

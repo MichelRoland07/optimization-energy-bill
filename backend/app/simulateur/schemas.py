@@ -29,6 +29,7 @@ class SimulationResponse(BaseModel):
     tarif_off_peak: float
     tarif_peak: float
     prime_fixe: float
+    coefficient: float  # Coefficient d'évolution (1.05 ou 1.10) ^ (annee - 2023)
     puissance: float
     temps_fonctionnement: float
     annee: int
