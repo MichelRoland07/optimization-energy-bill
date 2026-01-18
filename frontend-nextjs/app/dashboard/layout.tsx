@@ -12,19 +12,33 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, logout, hasPermission, isAdmin } = useAuthStore();
+  const { user, logout, hasPermission, isAdmin, loadUser } = useAuthStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [isLoading, setIsLoading] = useState(true);
 
+  // Initialize store from localStorage on mount
   useEffect(() => {
+    console.log('[DashboardLayout] Initializing store...');
+    const initStore = async () => {
+      await loadUser();
+      console.log('[DashboardLayout] Store initialized');
+    };
+    initStore();
+  }, []); // Run once on mount
+
+  useEffect(() => {
+    console.log('[DashboardLayout] User check effect, user:', user);
     // Give time for user to load from storage
     const timer = setTimeout(() => {
       setIsLoading(false);
       if (!user) {
+        console.log('[DashboardLayout] No user found, redirecting to login');
         router.push('/login');
+      } else {
+        console.log('[DashboardLayout] User loaded:', user.full_name);
       }
-    }, 100);
+    }, 200);
 
     return () => clearTimeout(timer);
   }, [user, router]);

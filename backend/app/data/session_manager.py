@@ -55,6 +55,16 @@ class SessionManager:
         if user_id in self._sessions:
             del self._sessions[user_id]
 
+    def store_user_data(self, user_id: int, df: pd.DataFrame):
+        """Store user data (alias for store_processed_data without service_no)"""
+        if user_id not in self._sessions:
+            self._sessions[user_id] = {}
+        self._sessions[user_id]['processed_df'] = df.copy()
+
+    def get_user_data(self, user_id: int) -> Optional[pd.DataFrame]:
+        """Get user data (alias for get_processed_data)"""
+        return self.get_processed_data(user_id)
+
 
 # Global session manager instance
 session_manager = SessionManager()

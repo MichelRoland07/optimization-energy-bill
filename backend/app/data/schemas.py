@@ -97,15 +97,35 @@ class TarifsProfilInfo(BaseModel):
 
 
 class ProfilClientResponse(BaseModel):
-    """Response for client profile endpoint"""
-    # Administrative info (contains annees_disponibles as list of int)
-    infos_administratives: Dict[str, Any]
+    """
+    Response for client profile endpoint
+    Matches exactly the Streamlit 'État des lieux et profil' page structure
+    """
+    # Section 1: Administrative Profile (5 fields)
+    infos_administratives: Dict[str, Any]  # nom_client, service_no, region, division, agence, annees_disponibles
 
-    # Energetic profile summary (enriched with tariffs)
-    profil_energetique: Dict[str, Any]
+    # Section 2: Energetic Profile Summary (6 tables for selected year)
+    profil_energetique: Dict[str, Any]  # Contains: tableau1, tableau1bis (optional), tableau2, tableau3, tableau4, tableau5 (optional), tableau6 (optional)
 
-    # Consumption profile (multi-year graph data with power series)
-    profil_consommation: Dict[str, Any]
+    # Section 3: Consumption Profile (multi-year analysis)
+    profil_consommation: Dict[str, Any]  # graph1_evolution, tableau_variation_conso, graph2_hc_hp_facturation, tableau_variation_facturation, tableau_prix_unitaire, tableau_recapitulatif
 
-    # 3 graphiques profil énergétique (Plotly-ready data)
-    graphiques_profil_energetique: Optional[Dict[str, Any]] = None
+
+class ReconstitutionResponse(BaseModel):
+    """Response for reconstitution endpoint"""
+    year: int
+    nom_client: str
+    service_no: str
+    annees_disponibles: List[int]
+
+    # 4 Métriques globales
+    metriques_globales: Dict[str, Any]  # facture_reelle_total, facture_calculee_total, gap_total, nb_depassements
+
+    # Tableau détaillé mensuel
+    tableau_mensuel: List[Dict[str, Any]]  # Mois, Puissance souscrite, atteinte, Dépassement, Type tarifaire, Facture réelle, recalculée, Écart
+
+    # Graph 1: Facture réelle vs recalculée (grouped bars)
+    graph_comparaison: Dict[str, Any]
+
+    # Graph 2: Écarts mensuels (Gap)
+    graph_ecarts: Dict[str, Any]

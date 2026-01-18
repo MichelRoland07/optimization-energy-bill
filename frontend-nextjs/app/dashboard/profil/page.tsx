@@ -5,31 +5,91 @@ import dynamic from 'next/dynamic';
 import { Card } from '@/components/ui/Card';
 import { Alert } from '@/components/ui/Alert';
 import useAuthStore from '@/store/useAuthStore';
-import dataService, { type ProfilClientResponse } from '@/services/data.service';
+import dataService from '@/services/data.service';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
-export default function ProfilPage() {
+// Types matching backend response
+interface ProfilClientResponse {
+  infos_administratives: {
+    nom_client: string;
+    service_no: string;
+    region: string;
+    division: string;
+    agence: string;
+    annees_disponibles: number[];
+  };
+  profil_energetique: {
+    annee: number;
+    tableau1: any;
+    tableau1bis: any | null;
+    tableau2: any;
+    tableau3: any;
+    tableau4: any;
+    tableau5: any | null;
+    tableau6: any | null;
+  };
+  profil_consommation: {
+    graph1_evolution: {
+      series: Array<{
+        annee: number;
+        mois: number[];
+        consommation: number[];
+      }>;
+    };
+    tableau_variation_conso: Array<{
+      annee: number;
+      consommation: number;
+      variation?: number;
+    }>;
+    graph2_hc_hp_facturation: {
+      annees: number[];
+      hc: number[];
+      hp: number[];
+      facturation: number[];
+    };
+    tableau_variation_facturation: Array<{
+      annee: number;
+      facturation: number;
+      variation?: number;
+    }>;
+    tableau_prix_unitaire: Array<{
+      annee: number;
+      consommation: number;
+      facturation: number;
+      prix_unitaire: number;
+    }>;
+    tableau_recapitulatif: Array<{
+      annee: number;
+      consommation_totale: string;
+      consommation_moyenne: string;
+      heures_creuses: string;
+      heures_pointe: string;
+      mois_consommation_max: string;
+      facturation_totale: string;
+    }>;
+  };
+}
+
+export default function ProfilClientPage() {
   const { hasPermission } = useAuthStore();
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [profilData, setProfilData] = useState<ProfilClientResponse | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Section 4: Tableaux de synthèse
-  const [selectedYearSynthese, setSelectedYearSynthese] = useState<number | null>(null);
+  // Section 4: Synthese data
+  const [syntheseYear, setSyntheseYear] = useState<number | null>(null);
   const [syntheseData, setSyntheseData] = useState<any>(null);
   const [graphiquesData, setGraphiquesData] = useState<any>(null);
-  const [isLoadingSynthese, setIsLoadingSynthese] = useState(false);
+  const [isSyntheseLoading, setIsSyntheseLoading] = useState(false);
 
-  const canView = hasPermission('view_profil');
+  const canView = hasPermission('view_profile');
 
   useEffect(() => {
     if (canView) {
-      console.log('[Profil] Fetching profil data...');
       fetchProfilData();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canView]);
 
   const fetchProfilData = async (year?: number) => {
@@ -37,15 +97,13 @@ export default function ProfilPage() {
     setError('');
 
     try {
-      console.log('[Profil] Calling dataService.getProfilClient with year:', year);
       const data = await dataService.getProfilClient(year);
-      console.log('[Profil] Data received:', data);
       setProfilData(data);
+
       if (!selectedYear) {
-        setSelectedYear(data.profil_energetique.annee_selectionnee);
+        setSelectedYear(data.profil_energetique.annee);
       }
     } catch (err: any) {
-      console.error('[Profil] Error fetching data:', err);
       if (err.response?.status === 404) {
         setError('Aucune donnée disponible. Veuillez d\'abord télécharger un fichier Excel depuis la page Accueil.');
       } else {
@@ -62,7 +120,7 @@ export default function ProfilPage() {
   };
 
   const fetchSyntheseData = async (year: number) => {
-    setIsLoadingSynthese(true);
+    setIsSyntheseLoading(true);
     try {
       const [synthese, graphiques] = await Promise.all([
         dataService.getSynthese(year),
@@ -71,24 +129,24 @@ export default function ProfilPage() {
       setSyntheseData(synthese);
       setGraphiquesData(graphiques);
     } catch (err: any) {
-      console.error('Erreur chargement synthèse:', err);
+      console.error('Error loading synthese data:', err);
     } finally {
-      setIsLoadingSynthese(false);
+      setIsSyntheseLoading(false);
     }
   };
 
-  const handleYearChangeSynthese = (year: number) => {
-    setSelectedYearSynthese(year);
+  const handleSyntheseYearChange = (year: number) => {
+    setSyntheseYear(year);
     fetchSyntheseData(year);
   };
 
+  // Load synthese data when profil data is available
   useEffect(() => {
-    if (profilData && !selectedYearSynthese) {
-      const defaultYear = profilData.profil_energetique.annee_selectionnee;
-      setSelectedYearSynthese(defaultYear);
-      fetchSyntheseData(defaultYear);
+    if (profilData && !syntheseYear) {
+      const firstYear = profilData.infos_administratives.annees_disponibles[0];
+      setSyntheseYear(firstYear);
+      fetchSyntheseData(firstYear);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profilData]);
 
   if (!canView) {
@@ -105,25 +163,40 @@ export default function ProfilPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Chargement...</p>
-        </div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
     );
   }
 
+  if (!profilData) {
+    return (
+      <div className="p-8">
+        {error && <Alert type="error" message={error} onClose={() => setError('')} />}
+        {!error && (
+          <Alert
+            type="info"
+            message="Aucune donnée disponible. Veuillez d'abord télécharger un fichier Excel depuis la page Accueil."
+          />
+        )}
+      </div>
+    );
+  }
+
+  const { infos_administratives, profil_energetique, profil_consommation } = profilData;
+
   return (
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
-        {/* Titre Principal */}
+        {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-primary-600 text-center mb-2">
+          <h1 className="text-3xl font-bold text-gray-900">
             État des lieux et profil
           </h1>
+          <p className="mt-2 text-gray-600">
+            Profil complet du client et analyse de consommation
+          </p>
         </div>
 
-        {/* Alerts */}
         {error && (
           <Alert
             type="error"
@@ -132,312 +205,954 @@ export default function ProfilPage() {
           />
         )}
 
-        {!profilData && !error && (
-          <Alert
-            type="info"
-            message="Aucune donnée disponible. Veuillez d'abord télécharger un fichier Excel depuis la page Accueil."
-          />
-        )}
-
-        {profilData && (
-          <>
-            {/* SECTION 1: PROFIL CLIENT */}
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">👤 Profil du client</h2>
-              <div className="grid grid-cols-5 gap-4">
-                <div>
-                  <p className="font-semibold text-gray-700">Nom du client:</p>
-                  <p className="text-gray-900 mt-1 break-words">{profilData.infos_administratives.nom_client}</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-700">N° de service:</p>
-                  <p className="text-gray-900 mt-1">{profilData.infos_administratives.service_no}</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-700">Région:</p>
-                  <p className="text-gray-900 mt-1">{profilData.infos_administratives.region}</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-700">Division:</p>
-                  <p className="text-gray-900 mt-1">{profilData.infos_administratives.division}</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-700">Agence:</p>
-                  <p className="text-gray-900 mt-1">{profilData.infos_administratives.agence}</p>
-                </div>
-              </div>
-              <hr className="mt-6 border-gray-300" />
+        {/* ========== SECTION 1: PROFIL DU CLIENT (Administratif) ========== */}
+        <Card className="mb-8 bg-gradient-to-br from-blue-50 to-blue-100">
+          <h2 className="text-xl font-semibold text-blue-900 mb-4">👤 Profil du client</h2>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div>
+              <p className="text-sm font-medium text-blue-800">Nom du client:</p>
+              <p className="text-base text-blue-900 mt-1 break-words">
+                {infos_administratives.nom_client}
+              </p>
             </div>
+            <div>
+              <p className="text-sm font-medium text-blue-800">N° de service:</p>
+              <p className="text-base text-blue-900 mt-1">{infos_administratives.service_no}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-blue-800">Région:</p>
+              <p className="text-base text-blue-900 mt-1">{infos_administratives.region}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-blue-800">Division:</p>
+              <p className="text-base text-blue-900 mt-1">{infos_administratives.division}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-blue-800">Agence:</p>
+              <p className="text-base text-blue-900 mt-1">{infos_administratives.agence}</p>
+            </div>
+          </div>
+        </Card>
 
-            {/* SECTION 2: RÉSUMÉ DU PROFIL ÉNERGÉTIQUE */}
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">📋 Résumé du profil énergétique du client</h2>
-
-              {/* Sélecteur d'année */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sélectionner l'année pour le profil énergétique
+        {/* ========== SECTION 2: RÉSUMÉ DU PROFIL ÉNERGÉTIQUE ========== */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-gray-900">
+              📋 Résumé du profil énergétique du client
+            </h2>
+            {infos_administratives.annees_disponibles.length > 0 && (
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-700">
+                  Sélectionner l'année pour le profil énergétique:
                 </label>
                 <select
                   value={selectedYear || ''}
                   onChange={(e) => handleYearChange(Number(e.target.value))}
                   className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                 >
-                  {profilData.infos_administratives.annees_disponibles.map((year) => (
+                  {infos_administratives.annees_disponibles.map((year) => (
                     <option key={year} value={year}>
                       {year}
                     </option>
                   ))}
                 </select>
               </div>
+            )}
+          </div>
 
-              {/* Tableau 1: Caractéristiques contractuelles */}
-              <div className="mb-4">
-                <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                  Caractéristiques contractuelles et tarifaires ({profilData.profil_energetique.annee_selectionnee})
-                </h4>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border border-gray-300 bg-white">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Puissance souscrite</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Type tarifaire</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Plage horaire applicable</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">
-                          Tarif HC ({profilData.profil_energetique.annee_selectionnee})
-                        </th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">
-                          Tarif HP ({profilData.profil_energetique.annee_selectionnee})
-                        </th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">
-                          Prime Fixe ({profilData.profil_energetique.annee_selectionnee})
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.puissance_souscrite.toFixed(0)} kW
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900 whitespace-pre-line">
-                          Type {profilData.profil_energetique.type_tarifaire}{'\n'}
-                          ({profilData.profil_energetique.categorie})
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.plage_horaire}
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.tarif_hc.toFixed(3)} FCFA/kWh
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.tarif_hp.toFixed(3)} FCFA/kWh
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.prime_fixe.toFixed(2)} FCFA/kW
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Tableau 2: Puissances atteintes */}
-              {profilData.graphiques_profil_energetique && (
-                <div className="mb-4">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                    Puissances atteintes sur la période ({profilData.profil_energetique.annee_selectionnee})
-                  </h4>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border border-gray-300 bg-white">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Puissance maximum</th>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Puissance minimum</th>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Puissance moyenne</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {profilData.profil_energetique.puissance_max.toFixed(0)} kW
-                            {profilData.profil_energetique.puissance_max > profilData.profil_energetique.puissance_souscrite && ' ⚠️'}
-                          </td>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {profilData.profil_energetique.puissance_min.toFixed(0)} kW
-                          </td>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {profilData.profil_energetique.puissance_moyenne.toFixed(0)} kW
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Tableau 3: Consommations */}
-              <div className="mb-4">
-                <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                  Consommations sur la période ({profilData.profil_energetique.annee_selectionnee})
-                </h4>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border border-gray-300 bg-white">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Conso. max mensuelle</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Conso. min mensuelle</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Conso. moyenne mensuelle</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Conso. creuse moyenne</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Conso. pointe moyenne</th>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Ratio HC/HP</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.consommation_max.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.consommation_min.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.consommation_moyenne.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.conso_hc_moyenne.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.conso_hp_moyenne.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh
-                        </td>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {profilData.profil_energetique.ratio_hc.toFixed(1)}% / {profilData.profil_energetique.ratio_hp.toFixed(1)}%
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Tableau 4: Facturation TTC */}
-              {profilData.graphiques_profil_energetique && (
-                <div className="mb-4">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                    Facturation TTC sur la période ({profilData.profil_energetique.annee_selectionnee})
-                  </h4>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border border-gray-300 bg-white">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Facture TTC max</th>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Facture TTC min</th>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Facture TTC moyenne</th>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">
-                            Facture TTC totale ({profilData.profil_energetique.annee_selectionnee})
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {Math.max(...profilData.graphiques_profil_energetique.graph_factures.y).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} FCFA
-                          </td>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {Math.min(...profilData.graphiques_profil_energetique.graph_factures.y).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} FCFA
-                          </td>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {(profilData.graphiques_profil_energetique.graph_factures.y.reduce((a, b) => a + b, 0) / profilData.graphiques_profil_energetique.graph_factures.y.length).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} FCFA
-                          </td>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {profilData.graphiques_profil_energetique.graph_factures.y.reduce((a, b) => a + b, 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} FCFA
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Tableau 5: Cos φ (si disponible) */}
-              {profilData.profil_energetique.cosphi && (
-                <div className="mb-4">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                    Facteur de puissance Cos φ ({profilData.profil_energetique.annee_selectionnee})
-                  </h4>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border border-gray-300 bg-white">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Cos φ max</th>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Cos φ min</th>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Cos φ moyen</th>
-                          <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Mois avec Cos φ &lt; 0.9</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {profilData.profil_energetique.cosphi.max.toFixed(2)} {profilData.profil_energetique.cosphi.max >= 0.9 ? '✅' : '🔴'}
-                          </td>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {profilData.profil_energetique.cosphi.min.toFixed(2)} {profilData.profil_energetique.cosphi.min >= 0.9 ? '✅' : '🔴'}
-                          </td>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {profilData.profil_energetique.cosphi.moyen.toFixed(2)} {profilData.profil_energetique.cosphi.moyen >= 0.9 ? '✅' : '🔴'}
-                          </td>
-                          <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                            {profilData.profil_energetique.cosphi.nb_mois_sous_seuil} / 12 mois {profilData.profil_energetique.cosphi.nb_mois_sous_seuil === 0 ? '✅' : '🔴'}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              <hr className="mt-6 border-gray-300" />
+          {/* Tableau 1: Caractéristiques contractuelles et tarifaires */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Caractéristiques contractuelles et tarifaires ({profil_energetique.annee})
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Puissance souscrite
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Type tarifaire
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Plage horaire applicable
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Tarif HC ({profil_energetique.annee})
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Tarif HP ({profil_energetique.annee})
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Prime Fixe ({profil_energetique.annee})
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau1.puissance_souscrite}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau1.type_tarifaire}
+                      <br />
+                      <span className="text-xs text-gray-600">({profil_energetique.tableau1.categorie})</span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau1.plage_horaire}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau1.tarif_hc}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau1.tarif_hp}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau1.prime_fixe}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
+          </Card>
 
-            {/* SECTION 3: PROFIL DE CONSOMMATION */}
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">📊 Profil de consommation</h2>
+          {/* Tableau 1bis: Projection N+1 (only if year == 2025) */}
+          {profil_energetique.tableau1bis && (
+            <Card className="mb-6 bg-yellow-50">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Caractéristiques contractuelles et tarifaires (2026) - Projection
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-yellow-100">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Puissance souscrite
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Type tarifaire
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Plage horaire applicable
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Tarif HC (2026)
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Tarif HP (2026)
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Prime Fixe (2026)
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau1bis.puissance_souscrite}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau1bis.type_tarifaire}
+                        <br />
+                        <span className="text-xs text-gray-600">({profil_energetique.tableau1bis.categorie})</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau1bis.plage_horaire}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau1bis.tarif_hc}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau1bis.tarif_hp}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau1bis.prime_fixe}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
 
-              {/* Graphique: Évolution consommation mensuelle sur 3 ans */}
+          {/* Tableau 2: Puissances atteintes */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Puissances atteintes sur la période ({profil_energetique.annee})
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Puissance maximum
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Puissance minimum
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Puissance moyenne
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Dépassements
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau2.puissance_max.valeur}{' '}
+                      {profil_energetique.tableau2.puissance_max.warning && '⚠️'}
+                      <br />
+                      <span className="text-xs text-gray-600">
+                        ({profil_energetique.tableau2.puissance_max.mois})
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau2.puissance_min.valeur}
+                      <br />
+                      <span className="text-xs text-gray-600">
+                        ({profil_energetique.tableau2.puissance_min.mois})
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau2.puissance_moyenne}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau2.depassements.nb} mois / {profil_energetique.tableau2.depassements.total} mois
+                      ({profil_energetique.tableau2.depassements.pct.toFixed(1)}%)
+                      <br />
+                      <span className={profil_energetique.tableau2.depassements.warning ? 'text-red-600' : 'text-green-600'}>
+                        {profil_energetique.tableau2.depassements.warning ? '⚠️ Dépassements détectés' : '✅ Aucun dépassement'}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Tableau 3: Consommations */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Consommations sur la période ({profil_energetique.annee})
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Conso. max mensuelle
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Conso. min mensuelle
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Conso. moyenne mensuelle
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Conso. creuse moyenne
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Conso. pointe moyenne
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Ratio HC/HP
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Temps fonct. moyen
+                    </th>
+                    {profil_energetique.tableau3.cosphi_moyen && (
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Cos φ moyen
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau3.conso_max.valeur}
+                      <br />
+                      <span className="text-xs text-gray-600">
+                        ({profil_energetique.tableau3.conso_max.mois})
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau3.conso_min.valeur}
+                      <br />
+                      <span className="text-xs text-gray-600">
+                        ({profil_energetique.tableau3.conso_min.mois})
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau3.conso_moyenne}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau3.conso_hc_moyenne}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau3.conso_hp_moyenne}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau3.ratio_hc_hp}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau3.temps_fonct_moyen}
+                    </td>
+                    {profil_energetique.tableau3.cosphi_moyen && (
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau3.cosphi_moyen.valeur}{' '}
+                        {profil_energetique.tableau3.cosphi_moyen.status ? '✅' : '🔴'}
+                      </td>
+                    )}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Tableau 4: Facturation TTC */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Facturation TTC sur la période ({profil_energetique.annee})
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Facture TTC max
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Facture TTC min
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Facture TTC moyenne
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Facture TTC totale ({profil_energetique.annee})
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau4.facture_max.valeur}
+                      <br />
+                      <span className="text-xs text-gray-600">
+                        ({profil_energetique.tableau4.facture_max.mois})
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau4.facture_min.valeur}
+                      <br />
+                      <span className="text-xs text-gray-600">
+                        ({profil_energetique.tableau4.facture_min.mois})
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau4.facture_moyenne}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {profil_energetique.tableau4.facture_totale}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Tableau 5: Cos φ (if available) */}
+          {profil_energetique.tableau5 && (
+            <Card className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Facteur de puissance Cos φ ({profil_energetique.annee})
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Cos φ max
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Cos φ min
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Cos φ moyen
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Mois avec Cos φ &lt; 0.9
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau5.cosphi_max.valeur}{' '}
+                        {profil_energetique.tableau5.cosphi_max.status ? '✅' : '🔴'}
+                        <br />
+                        <span className="text-xs text-gray-600">
+                          ({profil_energetique.tableau5.cosphi_max.mois})
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau5.cosphi_min.valeur}{' '}
+                        {profil_energetique.tableau5.cosphi_min.status ? '✅' : '🔴'}
+                        <br />
+                        <span className="text-xs text-gray-600">
+                          ({profil_energetique.tableau5.cosphi_min.mois})
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau5.cosphi_moyen.valeur}{' '}
+                        {profil_energetique.tableau5.cosphi_moyen.status ? '✅' : '🔴'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau5.nb_mois_mauvais.nb} /{' '}
+                        {profil_energetique.tableau5.nb_mois_mauvais.total} mois{' '}
+                        {profil_energetique.tableau5.nb_mois_mauvais.status ? '✅' : '🔴'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          {/* Tableau 6: Pénalité Cos φ (if available) */}
+          {profil_energetique.tableau6 && (
+            <Card className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Pénalité Cos φ ({profil_energetique.annee})
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Pénalité max
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Pénalité min
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Pénalité moyenne
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Pénalité totale ({profil_energetique.annee})
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau6.penalite_max.valeur}
+                        <br />
+                        <span className="text-xs text-gray-600">
+                          ({profil_energetique.tableau6.penalite_max.mois})
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau6.penalite_min.valeur}
+                        <br />
+                        <span className="text-xs text-gray-600">
+                          ({profil_energetique.tableau6.penalite_min.mois})
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau6.penalite_moyenne}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {profil_energetique.tableau6.penalite_totale}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* ========== SECTION 3: PROFIL DE CONSOMMATION (multi-années) ========== */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">
+            📊 Profil de consommation
+          </h2>
+
+          {/* Graph 1: Évolution de la consommation mensuelle sur 3 ans */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Évolution de la consommation mensuelle sur 3 ans
+            </h3>
+            <Plot
+              data={profil_consommation.graph1_evolution.series.map((serie, idx) => {
+                const couleurs = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'];
+                return {
+                  x: serie.mois,
+                  y: serie.consommation,
+                  type: 'scatter',
+                  mode: 'lines+markers',
+                  name: `${serie.annee}`,
+                  line: { width: 2, color: couleurs[idx % couleurs.length] },
+                  marker: { size: 6 },
+                  hovertemplate: `<b>${serie.annee}</b><br>Mois: %{x}<br>Consommation: %{y:,.0f} kWh<extra></extra>`
+                };
+              })}
+              layout={{
+                autosize: true,
+                height: 450,
+                xaxis: {
+                  title: 'Mois',
+                  tickmode: 'array',
+                  tickvals: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                  ticktext: ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+                },
+                yaxis: { title: 'Consommation (kWh)' },
+                hovermode: 'x unified',
+                showlegend: true,
+                legend: { orientation: 'h', y: 1.02, x: 1, xanchor: 'right', yanchor: 'bottom' }
+              }}
+              useResizeHandler
+              style={{ width: '100%', height: '100%' }}
+              config={{ responsive: true }}
+            />
+          </Card>
+
+          {/* Tableau variation consommation */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Variation de la consommation totale
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Indicateur
+                    </th>
+                    {profil_consommation.tableau_variation_conso.map((row) => (
+                      <th key={row.annee} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                        {row.annee}
+                      </th>
+                    ))}
+                    {profil_consommation.tableau_variation_conso.map((row, idx) => (
+                      idx > 0 && (
+                        <th key={`var-${idx}`} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                          Variation {profil_consommation.tableau_variation_conso[idx-1].annee}→{row.annee}
+                        </th>
+                      )
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                      Consommation totale (kWh)
+                    </td>
+                    {profil_consommation.tableau_variation_conso.map((row) => (
+                      <td key={row.annee} className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.consommation.toLocaleString('fr-FR')}
+                      </td>
+                    ))}
+                    {profil_consommation.tableau_variation_conso.map((row, idx) => (
+                      idx > 0 && row.variation !== undefined && (
+                        <td key={`var-${idx}`} className="px-4 py-3 text-sm text-gray-900 text-center">
+                          {row.variation > 1 && `+${row.variation.toFixed(1)}% ⬆️`}
+                          {row.variation < -1 && `${row.variation.toFixed(1)}% ⬇️`}
+                          {row.variation >= -1 && row.variation <= 1 && `${row.variation.toFixed(1)}% ➡️`}
+                        </td>
+                      )
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Zone de texte pour analyse */}
+          <Card className="mb-6 bg-blue-50">
+            <h4 className="text-md font-semibold text-blue-900 mb-2">
+              📝 Vos analyses et observations sur l'évolution de la consommation
+            </h4>
+            <textarea
+              className="w-full p-3 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+              rows={4}
+              placeholder="Saisissez ici vos commentaires et analyses sur l'évolution de la consommation mensuelle au fil des années..."
+            />
+          </Card>
+
+          {/* Graph 2: Consommation (HC/HP empilées) et Facturation annuelle */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Consommation (HC/HP) et Facturation annuelle
+            </h3>
+            <Plot
+              data={[
+                {
+                  x: profil_consommation.graph2_hc_hp_facturation.annees.map(String),
+                  y: profil_consommation.graph2_hc_hp_facturation.hc,
+                  type: 'bar',
+                  name: 'Heures Creuses',
+                  marker: { color: '#66BB6A' },
+                  text: profil_consommation.graph2_hc_hp_facturation.hc.map(val => `${val.toFixed(2)} MWh`),
+                  textposition: 'inside',
+                  hovertemplate: '<b>Heures Creuses</b><br>Année: %{x}<br>Consommation: %{y:.2f} MWh<extra></extra>',
+                  yaxis: 'y'
+                },
+                {
+                  x: profil_consommation.graph2_hc_hp_facturation.annees.map(String),
+                  y: profil_consommation.graph2_hc_hp_facturation.hp,
+                  type: 'bar',
+                  name: 'Heures Pointe',
+                  marker: { color: '#FFA726' },
+                  text: profil_consommation.graph2_hc_hp_facturation.hp.map(val => `${val.toFixed(2)} MWh`),
+                  textposition: 'inside',
+                  hovertemplate: '<b>Heures Pointe</b><br>Année: %{x}<br>Consommation: %{y:.2f} MWh<extra></extra>',
+                  yaxis: 'y'
+                },
+                {
+                  x: profil_consommation.graph2_hc_hp_facturation.annees.map(String),
+                  y: profil_consommation.graph2_hc_hp_facturation.facturation,
+                  type: 'scatter',
+                  mode: 'lines+markers',
+                  name: 'Facturation',
+                  line: { color: '#1E88E5', width: 3 },
+                  marker: { size: 10 },
+                  text: profil_consommation.graph2_hc_hp_facturation.facturation.map(val => `${val.toFixed(1)}M`),
+                  textposition: 'top center',
+                  hovertemplate: '<b>Facturation</b><br>Année: %{x}<br>Montant: %{y:.2f} M FCFA<extra></extra>',
+                  yaxis: 'y2'
+                }
+              ]}
+              layout={{
+                autosize: true,
+                height: 450,
+                xaxis: { title: 'Année' },
+                yaxis: {
+                  title: 'Consommation (MWh)',
+                  titlefont: { color: '#4CAF50' },
+                  tickfont: { color: '#4CAF50' }
+                },
+                yaxis2: {
+                  title: 'Facturation (M FCFA)',
+                  titlefont: { color: '#1E88E5' },
+                  tickfont: { color: '#1E88E5' },
+                  overlaying: 'y',
+                  side: 'right'
+                },
+                barmode: 'stack',
+                hovermode: 'x unified',
+                showlegend: true,
+                legend: { orientation: 'h', y: 1.02, x: 1, xanchor: 'right', yanchor: 'bottom' }
+              }}
+              useResizeHandler
+              style={{ width: '100%', height: '100%' }}
+              config={{ responsive: true }}
+            />
+          </Card>
+
+          {/* Tableau variation facturation */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Variation de la facturation TTC totale
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Indicateur
+                    </th>
+                    {profil_consommation.tableau_variation_facturation.map((row) => (
+                      <th key={row.annee} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                        {row.annee}
+                      </th>
+                    ))}
+                    {profil_consommation.tableau_variation_facturation.map((row, idx) => (
+                      idx > 0 && (
+                        <th key={`var-${idx}`} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                          Variation {profil_consommation.tableau_variation_facturation[idx-1].annee}→{row.annee}
+                        </th>
+                      )
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                      Facturation TTC totale (FCFA)
+                    </td>
+                    {profil_consommation.tableau_variation_facturation.map((row) => (
+                      <td key={row.annee} className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.facturation.toLocaleString('fr-FR')}
+                      </td>
+                    ))}
+                    {profil_consommation.tableau_variation_facturation.map((row, idx) => (
+                      idx > 0 && row.variation !== undefined && (
+                        <td key={`var-${idx}`} className="px-4 py-3 text-sm text-gray-900 text-center">
+                          {row.variation > 1 && `+${row.variation.toFixed(1)}% ⬆️`}
+                          {row.variation < -1 && `${row.variation.toFixed(1)}% ⬇️`}
+                          {row.variation >= -1 && row.variation <= 1 && `${row.variation.toFixed(1)}% ➡️`}
+                        </td>
+                      )
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Tableau prix unitaire */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              💰 Prix unitaire facture/consommation
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Année
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      Consommation totale (kWh)
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      Facturation totale (FCFA)
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      Prix unitaire (FCFA/kWh)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {profil_consommation.tableau_prix_unitaire.map((row) => (
+                    <tr key={row.annee}>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        {row.annee}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                        {row.consommation.toLocaleString('fr-FR')}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                        {row.facturation.toLocaleString('fr-FR')}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                        {row.prix_unitaire.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Zone de texte pour analyse */}
+          <Card className="mb-6 bg-green-50">
+            <h4 className="text-md font-semibold text-green-900 mb-2">
+              📝 Vos analyses et observations sur la consommation HC/HP et la facturation
+            </h4>
+            <textarea
+              className="w-full p-3 border border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none bg-white"
+              rows={4}
+              placeholder="Saisissez ici vos commentaires sur la répartition heures creuses/pointe et l'évolution de la facturation..."
+            />
+          </Card>
+
+          {/* Tableau récapitulatif statistiques annuelles */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              📋 Tableau récapitulatif des statistiques annuelles
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Année
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                      Consommation Totale
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                      Moyenne/Mois
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                      Heures Creuses
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                      Heures Pointe
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                      Mois Consommation Max
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                      Facturation Totale
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {profil_consommation.tableau_recapitulatif.map((row) => (
+                    <tr key={row.annee}>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        {row.annee}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.consommation_totale}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.consommation_moyenne}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.heures_creuses}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.heures_pointe}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.mois_consommation_max}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.facturation_totale}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+
+        {/* ========== SECTION 4: TABLEAUX DE SYNTHÈSE PAR ANNÉE ========== */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-gray-900">
+              📊 Tableaux de synthèse par année
+            </h2>
+            {infos_administratives.annees_disponibles.length > 0 && (
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-700">
+                  Sélectionner une année:
+                </label>
+                <select
+                  value={syntheseYear || ''}
+                  onChange={(e) => handleSyntheseYearChange(Number(e.target.value))}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                >
+                  {infos_administratives.annees_disponibles.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {isSyntheseLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            </div>
+          ) : syntheseData && graphiquesData ? (
+            <>
+              {/* Tableau de synthèse */}
+              <Card className="mb-8">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  Tableau de synthèse {syntheseYear}
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mois</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Date relevé</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Puiss. souscrite</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Puiss. atteinte</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Dépassement</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Consommation</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conso HC</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conso HP</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Facture HT</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Facture TTC</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Prime fixe</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tarif HC</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tarif HP</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Type tarif</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {syntheseData.tableau.map((row: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{row.mois}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-center">{row.date_releve}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-center">{row.puissance_souscrite}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-center">{row.puissance_atteinte}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-center">
+                            <span className={row.depassement > 0 ? 'text-red-600 font-semibold' : ''}>
+                              {row.depassement}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.consommation.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.consommation_hc.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.consommation_hp.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.facture_ht.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right font-semibold">
+                            {row.facture_ttc.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.prime_fixe.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.tarif_hc.toLocaleString('fr-FR', { maximumFractionDigits: 3 })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.tarif_hp.toLocaleString('fr-FR', { maximumFractionDigits: 3 })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-center">Type {row.type_tarifaire}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              {/* Graphiques */}
+              <h3 className="text-xl font-bold text-gray-900 mb-6">
+                📈 Graphiques {syntheseYear}
+              </h3>
+
+              {/* Graph 1: Consommation mensuelle */}
               <Card className="mb-6">
                 <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                  Évolution de la consommation mensuelle sur 3 ans
+                  {graphiquesData.consommation_mensuelle.title}
                 </h4>
                 <Plot
-                  data={profilData.profil_consommation.series_consommation.map((serie, idx) => ({
-                    x: serie.mois,
-                    y: serie.consommation,
+                  data={[{
+                    x: graphiquesData.consommation_mensuelle.x,
+                    y: graphiquesData.consommation_mensuelle.y,
                     type: 'scatter',
                     mode: 'lines+markers',
-                    name: `${serie.annee}`,
-                    line: { width: 2, color: ['#1f77b4', '#ff7f0e', '#2ca02c'][idx % 3] },
-                    marker: { size: 6 },
-                    hovertemplate: '<b>%{fullData.name}</b><br>Mois: %{x}<br>Consommation: %{y:,.0f} kWh<extra></extra>'
-                  }))}
+                    name: graphiquesData.consommation_mensuelle.name,
+                    line: { color: '#1f77b4', width: 2 },
+                    marker: { size: 8 }
+                  }]}
                   layout={{
                     autosize: true,
-                    height: 450,
-                    margin: { l: 60, r: 30, t: 30, b: 60 },
-                    xaxis: {
-                      title: 'Mois',
-                      tickmode: 'array',
-                      tickvals: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                      ticktext: ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
-                    },
-                    yaxis: { title: 'Consommation (kWh)' },
-                    hovermode: 'x unified',
-                    font: { family: 'Arial, sans-serif', size: 14 },
-                    showlegend: true,
-                    legend: {
-                      orientation: 'h',
-                      yanchor: 'bottom',
-                      y: 1.02,
-                      xanchor: 'right',
-                      x: 1
-                    }
+                    height: 400,
+                    xaxis: { title: graphiquesData.consommation_mensuelle.xaxis_title },
+                    yaxis: { title: graphiquesData.consommation_mensuelle.yaxis_title },
+                    showlegend: false
                   }}
                   useResizeHandler
                   style={{ width: '100%', height: '100%' }}
@@ -445,401 +1160,176 @@ export default function ProfilPage() {
                 />
               </Card>
 
-              {/* Tableau: Variation de la consommation totale */}
-              <div className="mb-4">
-                <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                  Variation de la consommation totale
+              {/* Graph 2: HC vs HP */}
+              <Card className="mb-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                  {graphiquesData.heures_creuses_pointe.title}
                 </h4>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border border-gray-300 bg-white">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">Indicateur</th>
-                        {profilData.profil_consommation.annees.map(annee => (
-                          <th key={annee} className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">
-                            {annee}
-                          </th>
-                        ))}
-                        {profilData.profil_consommation.annees.length > 1 && profilData.profil_consommation.annees.slice(1).map((annee, idx) => (
-                          <th key={`var-${annee}`} className="border border-gray-300 px-4 py-2 text-left text-gray-900 font-semibold">
-                            Variation {profilData.profil_consommation.annees[idx]}/{annee}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="border border-gray-300 px-4 py-2 text-gray-900">
-                          Consommation totale (kWh)
-                        </td>
-                        {profilData.profil_consommation.series_consommation.map(serie => {
-                          const total = serie.consommation.reduce((a, b) => a + b, 0);
-                          return (
-                            <td key={serie.annee} className="border border-gray-300 px-4 py-2 text-gray-900">
-                              {total.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
-                            </td>
-                          );
-                        })}
-                        {profilData.profil_consommation.series_consommation.length > 1 &&
-                          profilData.profil_consommation.series_consommation.slice(1).map((serie, idx) => {
-                            const totalCurr = serie.consommation.reduce((a, b) => a + b, 0);
-                            const totalPrev = profilData.profil_consommation.series_consommation[idx].consommation.reduce((a, b) => a + b, 0);
-                            const variation = totalPrev > 0 ? ((totalCurr - totalPrev) / totalPrev * 100).toFixed(1) : '0.0';
-                            return (
-                              <td key={`var-${serie.annee}`} className="border border-gray-300 px-4 py-2 text-gray-900">
-                                {variation}%
-                              </td>
-                            );
-                          })
-                        }
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+                <Plot
+                  data={[
+                    {
+                      x: graphiquesData.heures_creuses_pointe.x,
+                      y: graphiquesData.heures_creuses_pointe.y_hc,
+                      type: 'bar',
+                      name: 'Heures Creuses',
+                      marker: { color: '#66BB6A' }
+                    },
+                    {
+                      x: graphiquesData.heures_creuses_pointe.x,
+                      y: graphiquesData.heures_creuses_pointe.y_hp,
+                      type: 'bar',
+                      name: 'Heures Pointe',
+                      marker: { color: '#FFA726' }
+                    }
+                  ]}
+                  layout={{
+                    autosize: true,
+                    height: 400,
+                    xaxis: { title: graphiquesData.heures_creuses_pointe.xaxis_title },
+                    yaxis: { title: graphiquesData.heures_creuses_pointe.yaxis_title },
+                    barmode: 'group',
+                    showlegend: true,
+                    legend: { orientation: 'h', y: -0.2 }
+                  }}
+                  useResizeHandler
+                  style={{ width: '100%', height: '100%' }}
+                  config={{ responsive: true }}
+                />
+              </Card>
 
-            {/* SECTION 4: TABLEAUX DE SYNTHÈSE PAR ANNÉE */}
-            <div className="mb-6">
-              <hr className="my-6 border-gray-300" />
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">📊 Tableaux de synthèse par année</h2>
+              {/* Graph 3: Puissance */}
+              <Card className="mb-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                  {graphiquesData.puissance.title}
+                </h4>
+                <Plot
+                  data={[
+                    {
+                      x: graphiquesData.puissance.x,
+                      y: graphiquesData.puissance.y_atteinte,
+                      type: 'scatter',
+                      mode: 'lines+markers',
+                      name: 'Puissance atteinte',
+                      line: { color: '#2196F3', width: 2 },
+                      marker: { size: 8 }
+                    },
+                    {
+                      x: graphiquesData.puissance.x,
+                      y: graphiquesData.puissance.y_souscrite,
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: 'Puissance souscrite',
+                      line: { color: '#F44336', width: 2, dash: 'dash' }
+                    }
+                  ]}
+                  layout={{
+                    autosize: true,
+                    height: 400,
+                    xaxis: { title: graphiquesData.puissance.xaxis_title },
+                    yaxis: { title: graphiquesData.puissance.yaxis_title },
+                    showlegend: true,
+                    legend: { orientation: 'h', y: -0.2 }
+                  }}
+                  useResizeHandler
+                  style={{ width: '100%', height: '100%' }}
+                  config={{ responsive: true }}
+                />
+              </Card>
 
-              {/* Sélecteur d'année pour synthèse */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sélectionner une année
-                </label>
-                <select
-                  value={selectedYearSynthese || ''}
-                  onChange={(e) => handleYearChangeSynthese(Number(e.target.value))}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-                >
-                  {profilData.infos_administratives.annees_disponibles.map((year) => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Graph 4: Facturation et consommation (dual axis) */}
+              <Card className="mb-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                  {graphiquesData.facturation_consommation.title}
+                </h4>
+                <Plot
+                  data={[
+                    {
+                      x: graphiquesData.facturation_consommation.x,
+                      y: graphiquesData.facturation_consommation.facturation,
+                      type: 'bar',
+                      name: 'Facturation',
+                      marker: { color: '#4CAF50' },
+                      yaxis: 'y'
+                    },
+                    {
+                      x: graphiquesData.facturation_consommation.x,
+                      y: graphiquesData.facturation_consommation.consommation,
+                      type: 'scatter',
+                      mode: 'lines+markers',
+                      name: 'Consommation',
+                      line: { color: '#FF9800', width: 2 },
+                      marker: { size: 8 },
+                      yaxis: 'y2'
+                    }
+                  ]}
+                  layout={{
+                    autosize: true,
+                    height: 400,
+                    xaxis: { title: graphiquesData.facturation_consommation.xaxis_title },
+                    yaxis: {
+                      title: graphiquesData.facturation_consommation.yaxis1_title,
+                      titlefont: { color: '#4CAF50' },
+                      tickfont: { color: '#4CAF50' }
+                    },
+                    yaxis2: {
+                      title: graphiquesData.facturation_consommation.yaxis2_title,
+                      titlefont: { color: '#FF9800' },
+                      tickfont: { color: '#FF9800' },
+                      overlaying: 'y',
+                      side: 'right'
+                    },
+                    showlegend: true,
+                    legend: { orientation: 'h', y: -0.2 }
+                  }}
+                  useResizeHandler
+                  style={{ width: '100%', height: '100%' }}
+                  config={{ responsive: true }}
+                />
+              </Card>
 
-              {/* Tableau de synthèse */}
-              {isLoadingSynthese && (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-                  <p className="mt-4 text-gray-600">Génération du tableau {selectedYearSynthese}...</p>
-                </div>
+              {/* Graph 5: Cos(φ) if available */}
+              {graphiquesData.cosphi && (
+                <Card className="mb-6">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                    {graphiquesData.cosphi.title}
+                  </h4>
+                  <Plot
+                    data={[
+                      {
+                        x: graphiquesData.cosphi.x,
+                        y: graphiquesData.cosphi.y,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        name: 'Cos φ',
+                        line: { color: '#9C27B0', width: 2 },
+                        marker: { size: 8 }
+                      },
+                      {
+                        x: graphiquesData.cosphi.x,
+                        y: graphiquesData.cosphi.y_seuil,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Seuil (0.85)',
+                        line: { color: '#FFA500', width: 2, dash: 'dash' }
+                      }
+                    ]}
+                    layout={{
+                      autosize: true,
+                      height: 400,
+                      xaxis: { title: graphiquesData.cosphi.xaxis_title },
+                      yaxis: { title: graphiquesData.cosphi.yaxis_title },
+                      showlegend: true,
+                      legend: { orientation: 'h', y: -0.2 }
+                    }}
+                    useResizeHandler
+                    style={{ width: '100%', height: '100%' }}
+                    config={{ responsive: true }}
+                  />
+                </Card>
               )}
-
-              {syntheseData && !isLoadingSynthese && (
-                <>
-                  <div className="mb-6 overflow-x-auto">
-                    <table className="min-w-full border border-gray-300 text-sm bg-white">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          {/* En-têtes : Mois, Année XXXX, puis les 12 mois */}
-                          {syntheseData.tableau[0] && Object.keys(syntheseData.tableau[0]).map((key) => (
-                            <th key={key} className="border border-gray-300 px-3 py-2 text-center text-gray-900 font-semibold whitespace-nowrap">
-                              {key}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {/* Chaque ligne représente un indicateur */}
-                        {syntheseData.tableau.map((row: any, idx: number) => (
-                          <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                            {Object.entries(row).map(([key, value]: [string, any], colIdx: number) => (
-                              <td
-                                key={colIdx}
-                                className={`border border-gray-300 px-3 py-2 text-gray-900 ${
-                                  colIdx === 0 ? 'font-semibold text-left' : 'text-right'
-                                }`}
-                              >
-                                {colIdx === 0
-                                  ? value
-                                  : (typeof value === 'number'
-                                      ? value.toLocaleString('fr-FR', { maximumFractionDigits: 2 })
-                                      : value || '')
-                                }
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Graphiques de synthèse */}
-                  {graphiquesData && (
-                    <>
-                      <h3 className="text-xl font-bold text-gray-900 mb-4">📈 Graphiques {selectedYearSynthese}</h3>
-
-                      {/* Graphique 1: Évolution de la consommation mensuelle */}
-                      <Card className="mb-6">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                          Évolution de la consommation mensuelle {selectedYearSynthese}
-                        </h4>
-                        <Plot
-                          data={[{
-                            x: graphiquesData.consommation_mensuelle.x,
-                            y: graphiquesData.consommation_mensuelle.y,
-                            type: 'scatter',
-                            mode: 'lines+markers',
-                            name: graphiquesData.consommation_mensuelle.name,
-                            line: { color: '#1f77b4', width: 2 },
-                            marker: { size: 6 },
-                            fill: 'tozeroy'
-                          }]}
-                          layout={{
-                            autosize: true,
-                            height: 400,
-                            margin: { l: 60, r: 30, t: 30, b: 60 },
-                            xaxis: { title: 'Mois' },
-                            yaxis: { title: 'Consommation (kWh)' },
-                            font: { family: 'Arial, sans-serif', size: 14 }
-                          }}
-                          useResizeHandler
-                          style={{ width: '100%', height: '100%' }}
-                          config={{ responsive: true }}
-                        />
-                      </Card>
-
-                      {/* Graphique 2: Heures creuses vs Pointe */}
-                      <Card className="mb-6">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                          Répartition Heures creuses / Pointe {selectedYearSynthese}
-                        </h4>
-                        <Plot
-                          data={[
-                            {
-                              x: graphiquesData.heures_creuses_pointe.x,
-                              y: graphiquesData.heures_creuses_pointe.heures_creuses,
-                              type: 'bar',
-                              name: 'Heures creuses',
-                              marker: { color: '#2ca02c' }
-                            },
-                            {
-                              x: graphiquesData.heures_creuses_pointe.x,
-                              y: graphiquesData.heures_creuses_pointe.heures_pointe,
-                              type: 'bar',
-                              name: 'Heures pointe',
-                              marker: { color: '#ff7f0e' }
-                            }
-                          ]}
-                          layout={{
-                            autosize: true,
-                            height: 400,
-                            margin: { l: 60, r: 30, t: 30, b: 60 },
-                            xaxis: { title: 'Mois' },
-                            yaxis: { title: 'Énergie (kWh)' },
-                            barmode: 'stack',
-                            font: { family: 'Arial, sans-serif', size: 14 }
-                          }}
-                          useResizeHandler
-                          style={{ width: '100%', height: '100%' }}
-                          config={{ responsive: true }}
-                        />
-                      </Card>
-
-                      {/* Graphique 3: Puissance atteinte vs souscrite */}
-                      <Card className="mb-6">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                          Puissance atteinte vs Puissance souscrite {selectedYearSynthese}
-                        </h4>
-                        <Plot
-                          data={[
-                            {
-                              x: graphiquesData.puissance.x,
-                              y: graphiquesData.puissance.puissance_atteinte,
-                              type: 'scatter',
-                              mode: 'lines+markers',
-                              name: 'Puissance atteinte',
-                              line: { color: '#d62728', width: 3 }
-                            },
-                            {
-                              x: graphiquesData.puissance.x,
-                              y: graphiquesData.puissance.puissance_souscrite,
-                              type: 'scatter',
-                              mode: 'lines',
-                              name: 'Puissance souscrite',
-                              line: { color: '#9467bd', width: 2, dash: 'dash' }
-                            }
-                          ]}
-                          layout={{
-                            autosize: true,
-                            height: 400,
-                            margin: { l: 60, r: 30, t: 30, b: 60 },
-                            xaxis: { title: 'Mois' },
-                            yaxis: { title: 'Puissance (kW)' },
-                            font: { family: 'Arial, sans-serif', size: 14 }
-                          }}
-                          useResizeHandler
-                          style={{ width: '100%', height: '100%' }}
-                          config={{ responsive: true }}
-                        />
-                      </Card>
-
-                      {/* Graphique 4: Facturation et Consommation (dual axis) */}
-                      <Card className="mb-6">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                          Facturation et Consommation mensuelle {selectedYearSynthese}
-                        </h4>
-                        <Plot
-                          data={[
-                            {
-                              x: graphiquesData.facturation_consommation.x,
-                              y: graphiquesData.facturation_consommation.facturation,
-                              type: 'bar',
-                              name: 'Montant TTC',
-                              marker: { color: '#17becf' },
-                              text: graphiquesData.facturation_consommation.facturation.map((v: number) => `${(v / 1e6).toFixed(1)}M`),
-                              textposition: 'outside',
-                              yaxis: 'y'
-                            },
-                            {
-                              x: graphiquesData.facturation_consommation.x,
-                              y: graphiquesData.facturation_consommation.consommation,
-                              type: 'scatter',
-                              mode: 'lines+markers',
-                              name: 'Consommation',
-                              line: { color: '#ff7f0e', width: 3 },
-                              marker: { size: 8 },
-                              yaxis: 'y2'
-                            }
-                          ]}
-                          layout={{
-                            autosize: true,
-                            height: 400,
-                            margin: { l: 60, r: 60, t: 30, b: 60 },
-                            xaxis: { title: 'Mois' },
-                            yaxis: {
-                              title: 'Montant TTC (FCFA)',
-                              titlefont: { color: '#17becf' },
-                              tickfont: { color: '#17becf' }
-                            },
-                            yaxis2: {
-                              title: 'Consommation (kWh)',
-                              titlefont: { color: '#ff7f0e' },
-                              tickfont: { color: '#ff7f0e' },
-                              overlaying: 'y',
-                              side: 'right'
-                            },
-                            hovermode: 'x unified',
-                            font: { family: 'Arial, sans-serif', size: 14 },
-                            legend: {
-                              orientation: 'h',
-                              yanchor: 'bottom',
-                              y: 1.02,
-                              xanchor: 'right',
-                              x: 1
-                            }
-                          }}
-                          useResizeHandler
-                          style={{ width: '100%', height: '100%' }}
-                          config={{ responsive: true }}
-                        />
-                      </Card>
-
-                      {/* Graphique 5: Cos(φ) et Consommation (si disponible) */}
-                      {graphiquesData.cosphi && (
-                        <Card className="mb-6">
-                          <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                            Cos(φ) et Consommation mensuelle {selectedYearSynthese}
-                          </h4>
-                          <Plot
-                            data={[
-                              {
-                                x: graphiquesData.cosphi.x,
-                                y: graphiquesData.cosphi.consommation_mwh,
-                                type: 'bar',
-                                name: 'Consommation',
-                                marker: { color: '#66B2FF' },
-                                opacity: 0.6,
-                                yaxis: 'y'
-                              },
-                              {
-                                x: graphiquesData.cosphi.x,
-                                y: graphiquesData.cosphi.cosphi,
-                                type: 'scatter',
-                                mode: 'lines+markers',
-                                name: 'Cos(φ)',
-                                line: { color: '#FF6B6B', width: 3 },
-                                marker: { size: 10, symbol: 'diamond' },
-                                yaxis: 'y2'
-                              },
-                              {
-                                x: graphiquesData.cosphi.x,
-                                y: Array(graphiquesData.cosphi.x.length).fill(0.9),
-                                type: 'scatter',
-                                mode: 'lines',
-                                name: 'Seuil référence (0.9)',
-                                line: { color: 'red', width: 2, dash: 'dash' },
-                                yaxis: 'y2'
-                              }
-                            ]}
-                            layout={{
-                              autosize: true,
-                              height: 450,
-                              margin: { l: 60, r: 60, t: 30, b: 60 },
-                              xaxis: { title: 'Mois' },
-                              yaxis: {
-                                title: 'Consommation (MWh)',
-                                titlefont: { color: '#66B2FF' },
-                                tickfont: { color: '#66B2FF' }
-                              },
-                              yaxis2: {
-                                title: 'Cos(φ)',
-                                titlefont: { color: '#FF6B6B' },
-                                tickfont: { color: '#FF6B6B' },
-                                overlaying: 'y',
-                                side: 'right',
-                                range: [0, 1]
-                              },
-                              hovermode: 'x unified',
-                              font: { family: 'Arial, sans-serif', size: 14 },
-                              legend: {
-                                orientation: 'h',
-                                yanchor: 'bottom',
-                                y: 1.02,
-                                xanchor: 'right',
-                                x: 1
-                              }
-                            }}
-                            useResizeHandler
-                            style={{ width: '100%', height: '100%' }}
-                            config={{ responsive: true }}
-                          />
-
-                          {/* Statistiques Cos φ */}
-                          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <div className="bg-blue-50 p-3 rounded-lg">
-                              <p className="text-sm text-gray-600">Cos φ moyen</p>
-                              <p className="text-xl font-bold text-blue-600">{graphiquesData.cosphi.cosphi_moyen.toFixed(3)}</p>
-                            </div>
-                            <div className="bg-green-50 p-3 rounded-lg">
-                              <p className="text-sm text-gray-600">Cos φ max</p>
-                              <p className="text-xl font-bold text-green-600">{graphiquesData.cosphi.cosphi_max.toFixed(3)}</p>
-                            </div>
-                            <div className="bg-red-50 p-3 rounded-lg">
-                              <p className="text-sm text-gray-600">Cos φ min</p>
-                              <p className="text-xl font-bold text-red-600">{graphiquesData.cosphi.cosphi_min.toFixed(3)}</p>
-                            </div>
-                            <div className={`p-3 rounded-lg ${graphiquesData.cosphi.nb_mois_sous_seuil > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
-                              <p className="text-sm text-gray-600">Mois sous seuil (0.85)</p>
-                              <p className={`text-xl font-bold ${graphiquesData.cosphi.nb_mois_sous_seuil > 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                                {graphiquesData.cosphi.nb_mois_sous_seuil}/12
-                              </p>
-                            </div>
-                          </div>
-                        </Card>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </>
-        )}
+            </>
+          ) : null}
+        </div>
       </div>
     </div>
   );

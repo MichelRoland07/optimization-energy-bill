@@ -190,7 +190,7 @@ export default function DocumentationPage() {
                 <li>• <strong>Types 1-3 :</strong> ≤ 12 kVA (petite puissance)</li>
                 <li>• <strong>Types 4-6 :</strong> 13-35 kVA (moyenne puissance)</li>
                 <li>• <strong>Types 7-9 :</strong> 36-250 kVA (haute puissance)</li>
-                <li>• <strong>Types 10-12 :</strong> > 250 kVA (très haute puissance)</li>
+                <li>• <strong>Types 10-12 :</strong> {'>'} 250 kVA (très haute puissance)</li>
               </ul>
             </div>
 
@@ -199,7 +199,7 @@ export default function DocumentationPage() {
               <ul className="text-sm text-gray-600 space-y-1 ml-4">
                 <li>• <strong>Plage 1 :</strong> 0-200 heures (faible utilisation)</li>
                 <li>• <strong>Plage 2 :</strong> 201-400 heures (utilisation moyenne)</li>
-                <li>• <strong>Plage 3 :</strong> > 400 heures (forte utilisation)</li>
+                <li>• <strong>Plage 3 :</strong> {'>'} 400 heures (forte utilisation)</li>
               </ul>
             </div>
 

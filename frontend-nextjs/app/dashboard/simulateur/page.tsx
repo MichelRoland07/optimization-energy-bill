@@ -375,7 +375,7 @@ export default function SimulateurPage() {
                 <tr><td className="px-6 py-4 text-sm">Type 1-3</td><td className="px-6 py-4 text-sm">≤ 12</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Petite puissance</td></tr>
                 <tr><td className="px-6 py-4 text-sm">Type 4-6</td><td className="px-6 py-4 text-sm">13-35</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Moyenne puissance</td></tr>
                 <tr><td className="px-6 py-4 text-sm">Type 7-9</td><td className="px-6 py-4 text-sm">36-250</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Haute puissance</td></tr>
-                <tr><td className="px-6 py-4 text-sm">Type 10-12</td><td className="px-6 py-4 text-sm">> 250</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Très haute puissance</td></tr>
+                <tr><td className="px-6 py-4 text-sm">Type 10-12</td><td className="px-6 py-4 text-sm">{'>'} 250</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Très haute puissance</td></tr>
               </tbody>
             </table>
           </div>
@@ -384,7 +384,7 @@ export default function SimulateurPage() {
             <ul className="ml-4 mt-1 space-y-1">
               <li>• 0-200h : Faible utilisation</li>
               <li>• 201-400h : Utilisation moyenne</li>
-              <li>• > 400h : Forte utilisation</li>
+              <li>• {'>'} 400h : Forte utilisation</li>
             </ul>
           </div>
         </Card>

@@ -3,41 +3,16 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 import useAuthStore from '@/store/useAuthStore';
-import axios from 'axios';
+import dataService, { ReconstitutionResponse } from '@/services/data.service';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-interface ReconstitutionData {
-  annee_reconstitution: number;
-  annees_disponibles: number[];
-  montant_total_facture: number;
-  montant_part_fixe: number;
-  montant_part_variable: number;
-  montant_taxes: number;
-  montant_ht: number;
-  montant_ttc: number;
-  consommation_totale_kwh: number;
-  puissance_souscrite: number;
-  prix_moyen_kwh: number;
-  plot_facture_mensuelle: any;
-  plot_repartition: any;
-  details_mensuels: Array<{
-    mois: string;
-    consommation_kwh: number;
-    montant_ht: number;
-    montant_ttc: number;
-  }>;
-}
 
 export default function ReconstitutionPage() {
   const { hasPermission } = useAuthStore();
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [reconstitutionData, setReconstitutionData] = useState<ReconstitutionData | null>(null);
+  const [reconstitutionData, setReconstitutionData] = useState<ReconstitutionResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -54,20 +29,22 @@ export default function ReconstitutionPage() {
     setError('');
 
     try {
-      const token = localStorage.getItem('access_token');
-      const url = year
-        ? `${API_BASE_URL}/api/data/reconstitution?year=${year}`
-        : `${API_BASE_URL}/api/data/reconstitution`;
+      // Use first available year if no year provided
+      let yearToUse = year;
 
-      const response = await axios.get<ReconstitutionData>(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      if (!yearToUse && reconstitutionData) {
+        yearToUse = reconstitutionData.annees_disponibles[0];
+      } else if (!yearToUse) {
+        // Try to get initial data to find available years
+        const initialData = await dataService.getReconstitution(new Date().getFullYear());
+        yearToUse = initialData.annees_disponibles[0];
+      }
 
-      setReconstitutionData(response.data);
+      const data = await dataService.getReconstitution(yearToUse!);
+      setReconstitutionData(data);
+
       if (!selectedYear) {
-        setSelectedYear(response.data.annee_reconstitution);
+        setSelectedYear(data.year);
       }
     } catch (err: any) {
       if (err.response?.status === 404) {
@@ -111,10 +88,10 @@ export default function ReconstitutionPage() {
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">
-              Reconstitution de la Facture
+              Reconstitution de la facture
             </h1>
             <p className="mt-2 text-gray-600">
-              Détail de votre facturation électrique
+              Comparaison entre factures réelles et recalculées
             </p>
           </div>
 
@@ -155,152 +132,68 @@ export default function ReconstitutionPage() {
 
         {reconstitutionData && (
           <>
-            {/* KPIs */}
+            {/* Global Metrics - 4 KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
                 <div>
-                  <p className="text-sm font-medium text-blue-900">Montant HT</p>
+                  <p className="text-sm font-medium text-blue-900">Facture réelle totale</p>
                   <p className="text-3xl font-bold text-blue-900 mt-2">
-                    {reconstitutionData.montant_ht.toLocaleString('fr-FR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })} €
+                    {reconstitutionData.metriques_globales.facture_reelle_total.toLocaleString('fr-FR', {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 0,
+                    })} FCFA
                   </p>
                 </div>
               </Card>
 
               <Card className="bg-gradient-to-br from-green-50 to-green-100">
                 <div>
-                  <p className="text-sm font-medium text-green-900">Montant TTC</p>
+                  <p className="text-sm font-medium text-green-900">Facture recalculée totale</p>
                   <p className="text-3xl font-bold text-green-900 mt-2">
-                    {reconstitutionData.montant_ttc.toLocaleString('fr-FR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })} €
+                    {reconstitutionData.metriques_globales.facture_calculee_total.toLocaleString('fr-FR', {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 0,
+                    })} FCFA
                   </p>
                 </div>
               </Card>
 
-              <Card>
+              <Card className={`bg-gradient-to-br ${
+                reconstitutionData.metriques_globales.gap_total >= 0
+                  ? 'from-orange-50 to-orange-100'
+                  : 'from-red-50 to-red-100'
+              }`}>
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Prix Moyen kWh</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-2">
-                    {reconstitutionData.prix_moyen_kwh.toFixed(4)} €
+                  <p className={`text-sm font-medium ${
+                    reconstitutionData.metriques_globales.gap_total >= 0
+                      ? 'text-orange-900'
+                      : 'text-red-900'
+                  }`}>Écart (Gap)</p>
+                  <p className={`text-3xl font-bold mt-2 ${
+                    reconstitutionData.metriques_globales.gap_total >= 0
+                      ? 'text-orange-900'
+                      : 'text-red-900'
+                  }`}>
+                    {reconstitutionData.metriques_globales.gap_total.toLocaleString('fr-FR', {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 0,
+                    })} FCFA
                   </p>
                 </div>
               </Card>
 
-              <Card>
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Consommation Totale</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-2">
-                    {reconstitutionData.consommation_totale_kwh.toLocaleString('fr-FR')} kWh
+                  <p className="text-sm font-medium text-purple-900">Dépassements de puissance</p>
+                  <p className="text-3xl font-bold text-purple-900 mt-2">
+                    {reconstitutionData.metriques_globales.nb_depassements}
                   </p>
                 </div>
-              </Card>
-            </div>
-
-            {/* Breakdown */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-              <Card>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Part Fixe</p>
-                    <p className="text-xl font-bold text-gray-900 mt-1">
-                      {reconstitutionData.montant_part_fixe.toLocaleString('fr-FR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })} €
-                    </p>
-                  </div>
-                  <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
-                    <svg className="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-              </Card>
-
-              <Card>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Part Variable</p>
-                    <p className="text-xl font-bold text-gray-900 mt-1">
-                      {reconstitutionData.montant_part_variable.toLocaleString('fr-FR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })} €
-                    </p>
-                  </div>
-                  <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center">
-                    <svg className="h-6 w-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                    </svg>
-                  </div>
-                </div>
-              </Card>
-
-              <Card>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Taxes</p>
-                    <p className="text-xl font-bold text-gray-900 mt-1">
-                      {reconstitutionData.montant_taxes.toLocaleString('fr-FR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })} €
-                    </p>
-                  </div>
-                  <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center">
-                    <svg className="h-6 w-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
-                    </svg>
-                  </div>
-                </div>
-              </Card>
-            </div>
-
-            {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-              {/* Monthly Bill */}
-              <Card>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  Facture Mensuelle
-                </h3>
-                <Plot
-                  data={reconstitutionData.plot_facture_mensuelle.data}
-                  layout={{
-                    ...reconstitutionData.plot_facture_mensuelle.layout,
-                    autosize: true,
-                    height: 400,
-                  }}
-                  useResizeHandler
-                  style={{ width: '100%', height: '100%' }}
-                  config={{ responsive: true }}
-                />
-              </Card>
-
-              {/* Cost Breakdown */}
-              <Card>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  Répartition des Coûts
-                </h3>
-                <Plot
-                  data={reconstitutionData.plot_repartition.data}
-                  layout={{
-                    ...reconstitutionData.plot_repartition.layout,
-                    autosize: true,
-                    height: 400,
-                  }}
-                  useResizeHandler
-                  style={{ width: '100%', height: '100%' }}
-                  config={{ responsive: true }}
-                />
               </Card>
             </div>
 
             {/* Monthly Details Table */}
-            <Card>
+            <Card className="mb-8">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 Détails Mensuels
               </h3>
@@ -308,68 +201,192 @@ export default function ReconstitutionPage() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Mois
                       </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Consommation (kWh)
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Puissance souscrite (kW)
                       </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Montant HT (€)
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Puissance atteinte (kW)
                       </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Montant TTC (€)
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Dépassement (kW)
+                      </th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Type tarifaire
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Facture réelle (FCFA)
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Facture recalculée (FCFA)
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Écart (FCFA)
                       </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {reconstitutionData.details_mensuels.map((detail, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {detail.mois}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          {detail.consommation_kwh.toLocaleString('fr-FR')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          {detail.montant_ht.toLocaleString('fr-FR', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
-                          {detail.montant_ttc.toLocaleString('fr-FR', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </td>
-                      </tr>
-                    ))}
+                    {reconstitutionData.tableau_mensuel.map((row, index) => {
+                      const hasSignificantGap = Math.abs(row.ecart) > 100;
+
+                      return (
+                        <tr
+                          key={index}
+                          className={hasSignificantGap ? 'bg-red-50' : 'hover:bg-gray-50'}
+                        >
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {row.mois}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                            {row.puissance_souscrite.toLocaleString('fr-FR')}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                            {row.puissance_atteinte.toLocaleString('fr-FR')}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                            <span className={row.depassement > 0 ? 'text-red-600 font-semibold' : ''}>
+                              {row.depassement.toLocaleString('fr-FR')}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                            Type {row.type_tarifaire}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">
+                            {row.facture_reelle.toLocaleString('fr-FR', {
+                              minimumFractionDigits: 0,
+                              maximumFractionDigits: 0,
+                            })}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">
+                            {row.facture_calculee.toLocaleString('fr-FR', {
+                              minimumFractionDigits: 0,
+                              maximumFractionDigits: 0,
+                            })}
+                          </td>
+                          <td className={`px-4 py-3 whitespace-nowrap text-sm text-right font-semibold ${
+                            hasSignificantGap
+                              ? 'text-red-700'
+                              : row.ecart >= 0
+                                ? 'text-orange-600'
+                                : 'text-green-600'
+                          }`}>
+                            {row.ecart.toLocaleString('fr-FR', {
+                              minimumFractionDigits: 0,
+                              maximumFractionDigits: 0,
+                            })}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
-                  <tfoot className="bg-gray-50">
-                    <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                        TOTAL
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
-                        {reconstitutionData.consommation_totale_kwh.toLocaleString('fr-FR')}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
-                        {reconstitutionData.montant_ht.toLocaleString('fr-FR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-600 text-right">
-                        {reconstitutionData.montant_ttc.toLocaleString('fr-FR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                    </tr>
-                  </tfoot>
                 </table>
               </div>
+            </Card>
+
+            {/* Graph 1: Comparison Real vs Recalculated */}
+            <Card className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                {reconstitutionData.graph_comparaison.title}
+              </h3>
+              <Plot
+                data={[
+                  {
+                    x: reconstitutionData.graph_comparaison.x,
+                    y: reconstitutionData.graph_comparaison.y_reelle,
+                    type: 'bar',
+                    name: 'Facture réelle',
+                    marker: { color: '#3B82F6' }
+                  },
+                  {
+                    x: reconstitutionData.graph_comparaison.x,
+                    y: reconstitutionData.graph_comparaison.y_calculee,
+                    type: 'bar',
+                    name: 'Facture recalculée',
+                    marker: { color: '#10B981' }
+                  }
+                ]}
+                layout={{
+                  autosize: true,
+                  height: 400,
+                  xaxis: { title: reconstitutionData.graph_comparaison.xaxis_title },
+                  yaxis: { title: reconstitutionData.graph_comparaison.yaxis_title },
+                  barmode: 'group',
+                  showlegend: true,
+                  legend: { orientation: 'h', y: -0.2 }
+                }}
+                useResizeHandler
+                style={{ width: '100%', height: '100%' }}
+                config={{ responsive: true }}
+              />
+            </Card>
+
+            {/* Text area for analysis 1 */}
+            <Card className="mb-8 bg-blue-50">
+              <h4 className="text-md font-semibold text-blue-900 mb-2">
+                Analyse de la comparaison
+              </h4>
+              <textarea
+                className="w-full p-3 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+                rows={4}
+                placeholder="Saisir votre analyse de la comparaison entre factures réelles et recalculées..."
+              />
+            </Card>
+
+            {/* Graph 2: Monthly Gaps */}
+            <Card className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                {reconstitutionData.graph_ecarts.title}
+              </h3>
+              <Plot
+                data={[
+                  {
+                    x: reconstitutionData.graph_ecarts.x,
+                    y: reconstitutionData.graph_ecarts.y,
+                    type: 'bar',
+                    name: 'Écart',
+                    marker: {
+                      color: reconstitutionData.graph_ecarts.y.map(val => val >= 0 ? '#10B981' : '#EF4444')
+                    }
+                  }
+                ]}
+                layout={{
+                  autosize: true,
+                  height: 400,
+                  xaxis: { title: reconstitutionData.graph_ecarts.xaxis_title },
+                  yaxis: { title: reconstitutionData.graph_ecarts.yaxis_title },
+                  showlegend: false,
+                  shapes: [{
+                    type: 'line',
+                    x0: 0,
+                    x1: 1,
+                    xref: 'paper',
+                    y0: 0,
+                    y1: 0,
+                    line: {
+                      color: 'black',
+                      width: 1,
+                      dash: 'dash'
+                    }
+                  }]
+                }}
+                useResizeHandler
+                style={{ width: '100%', height: '100%' }}
+                config={{ responsive: true }}
+              />
+            </Card>
+
+            {/* Text area for analysis 2 */}
+            <Card className="bg-green-50">
+              <h4 className="text-md font-semibold text-green-900 mb-2">
+                Analyse des écarts
+              </h4>
+              <textarea
+                className="w-full p-3 border border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none bg-white"
+                rows={4}
+                placeholder="Saisir votre analyse des écarts mensuels..."
+              />
             </Card>
           </>
         )}

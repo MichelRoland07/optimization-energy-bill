@@ -75,3 +75,6 @@ export interface UserSummary {
   status: string;
   created_at: string;
 }
+
+// Full user details with all fields (alias for User type)
+export type UserWithDetails = User;

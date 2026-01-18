@@ -4,6 +4,7 @@
 import api from '@/lib/api';
 
 export interface ProfilClientResponse {
+  // Section 1: Administrative Profile (5 fields)
   infos_administratives: {
     nom_client: string;
     service_no: string;
@@ -12,76 +13,67 @@ export interface ProfilClientResponse {
     agence: string;
     annees_disponibles: number[];
   };
+
+  // Section 2: Energetic Profile Summary (6 tables for selected year)
   profil_energetique: {
-    annee_selectionnee: number;
-    puissance_souscrite: number;
-    puissance_max: number;
-    puissance_min: number;
-    puissance_moyenne: number;
-    consommation_max: number;
-    consommation_min: number;
-    consommation_moyenne: number;
-    conso_hc_moyenne: number;
-    conso_hp_moyenne: number;
-    ratio_hc: number;
-    ratio_hp: number;
-    type_tarifaire: number;
-    categorie: string;
-    plage_horaire: string;
-    tarif_hc: number;
-    tarif_hp: number;
-    prime_fixe: number;
-    annee_tarifs: number;
-    cosphi?: {
-      disponible: boolean;
-      moyen: number;
-      min: number;
-      max: number;
-      nb_mois_sous_seuil: number;
-    };
-  };
-  profil_consommation: {
-    annees: number[];
-    series_consommation: Array<{
-      annee: number;
-      mois: number[];
-      consommation: number[];
-    }>;
-    series_puissance: Array<{
-      annee: number;
-      mois: number[];
-      puissance: number[];
-    }>;
-  };
-  graphiques_profil_energetique?: {
     annee: number;
-    graph_factures: {
-      x: string[];
-      y: number[];
-      type: string;
-      name: string;
-      title: string;
-      xaxis_title: string;
-      yaxis_title: string;
-    };
-    graph_puissances: {
-      x: string[];
-      y_atteinte: number[];
-      y_souscrite: number[];
-      type: string;
-      title: string;
-      xaxis_title: string;
-      yaxis_title: string;
-    };
-    graph_cosphi?: {
-      x: string[];
-      y: number[];
-      y_seuil: number[];
-      type: string;
-      title: string;
-      xaxis_title: string;
-      yaxis_title: string;
-    };
+    tableau1: any;        // Contractual characteristics
+    tableau1bis: any;     // N+1 projection (optional)
+    tableau2: any;        // Power reached
+    tableau3: any;        // Consumption
+    tableau4: any;        // Billing
+    tableau5: any;        // Cos φ (optional)
+    tableau6: any;        // Cos φ penalty (optional)
+  };
+
+  // Section 3: Consumption Profile (multi-year analysis)
+  profil_consommation: {
+    graph1_evolution: any;              // Multi-year consumption evolution
+    tableau_variation_conso: any;       // Year-over-year consumption variations
+    graph2_hc_hp_facturation: any;      // Stacked HC/HP + billing line
+    tableau_variation_facturation: any; // Billing variations
+    tableau_prix_unitaire: any;         // Unit price analysis
+    tableau_recapitulatif: any;         // Annual statistics summary
+  };
+}
+
+export interface ReconstitutionResponse {
+  year: number;
+  nom_client: string;
+  service_no: string;
+  annees_disponibles: number[];
+  metriques_globales: {
+    facture_reelle_total: number;
+    facture_calculee_total: number;
+    gap_total: number;
+    nb_depassements: number;
+  };
+  tableau_mensuel: Array<{
+    mois: string;
+    puissance_souscrite: number;
+    puissance_atteinte: number;
+    depassement: number;
+    type_tarifaire: number;
+    facture_reelle: number;
+    facture_calculee: number;
+    ecart: number;
+  }>;
+  graph_comparaison: {
+    x: string[];
+    y_reelle: number[];
+    y_calculee: number[];
+    type: string;
+    title: string;
+    xaxis_title: string;
+    yaxis_title: string;
+  };
+  graph_ecarts: {
+    x: string[];
+    y: number[];
+    type: string;
+    title: string;
+    xaxis_title: string;
+    yaxis_title: string;
   };
 }
 
@@ -108,6 +100,14 @@ export const dataService = {
    */
   async getGraphiques(year: number): Promise<any> {
     const response = await api.get(`/api/data/graphiques`, { params: { year } });
+    return response.data;
+  },
+
+  /**
+   * Get reconstitution data
+   */
+  async getReconstitution(year: number): Promise<ReconstitutionResponse> {
+    const response = await api.get<ReconstitutionResponse>('/api/data/reconstitution', { params: { year } });
     return response.data;
   },
 };

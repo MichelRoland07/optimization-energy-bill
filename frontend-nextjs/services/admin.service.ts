@@ -41,10 +41,10 @@ export const adminService = {
   },
 
   /**
-   * Get all users
+   * Get all users with full details
    */
-  async getAllUsers(): Promise<UserSummary[]> {
-    const response = await api.get<UserSummary[]>('/api/auth/users');
+  async getAllUsers(): Promise<User[]> {
+    const response = await api.get<User[]>('/api/auth/users');
     return response.data;
   },
 

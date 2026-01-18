@@ -442,16 +442,16 @@ async def reject_request(
     }
 
 
-@router.get("/users", response_model=List[UserSummary])
+@router.get("/users", response_model=List[UserResponse])
 async def get_all_users(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
     """
-    Get all users (admin only)
+    Get all users with full details (admin only)
     """
     users = db.query(User).order_by(User.created_at.desc()).all()
-    return [UserSummary.from_orm(user) for user in users]
+    return [UserResponse.from_orm(user) for user in users]
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)
