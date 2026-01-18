@@ -35,30 +35,18 @@ class ServiceSelectionResponse(BaseModel):
     nom_client: str
 
 
-class SyntheseRow(BaseModel):
-    """Single row in synthese table"""
-    mois: str
-    date_releve: str
-    puissance_souscrite: int
-    puissance_atteinte: int
-    depassement: int
-    consommation: float
-    consommation_hc: float
-    consommation_hp: float
-    facture_ht: float
-    facture_ttc: float
-    prime_fixe: float
-    tarif_hc: float
-    tarif_hp: float
-    type_tarifaire: int
-
-
 class SyntheseResponse(BaseModel):
-    """Response for synthese endpoint"""
+    """
+    Response for synthese endpoint
+    Matches Streamlit tableau de synthèse structure:
+    - Rows are indicators (Énergie, Puissance, etc.)
+    - Columns are: Mois | Année XXXX | 1 | 2 | 3 | ... | 12
+    """
     year: int
     nom_client: str
     service_no: str
-    tableau: List[Dict[str, Any]]  # Keep flexible for DataFrame conversion
+    # Tableau with indicators as rows, months as columns
+    tableau: List[Dict[str, Any]]  # Each dict: {"indicateur": "Énergie (kWh)", "annee_total": 12345, "1": 1000, "2": 1100, ...}
 
 
 class GraphiquesResponse(BaseModel):

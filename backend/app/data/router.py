@@ -655,6 +655,7 @@ async def get_synthese(
 ):
     """
     Get synthesis table for a specific year
+    Format matches Streamlit: indicators as rows, months as columns
     """
     # Get user's data
     df = session_manager.get_user_data(current_user.id)
@@ -678,30 +679,76 @@ async def get_synthese(
     nom_client = str(df_year.iloc[0]['CUST_NAME'])
     service_no = str(df_year.iloc[0]['SERVICE_NO'])
 
-    # Sort by date
+    # Sort by date and extract month
     df_year = df_year.sort_values('READING_DATE')
+    df_year['Mois'] = pd.to_datetime(df_year['READING_DATE']).dt.month
 
-    # Build table
+    # Create synthesis table with indicators as rows
+    lignes = {
+        'Énergie (kWh)': [],
+        'Énergie Active P (kWh)': [],
+        'Énergie Active Off P (kWh)': [],
+        'Puiss. Atteinte (kW)': [],
+        'Puiss. Fact (kW)': [],
+        'Temps normal (h/mois)': [],
+        'Cos phi': [],
+        'Montant HT (F.CFA)': [],
+        'Gap cos phi': [],
+        'Pénalité cos phi (F.CFA)': [],
+        'Montant TTC (F.CFA)': []
+    }
+
+    # Calculate monthly values
+    for mois in range(1, 13):
+        df_mois = df_year[df_year['Mois'] == mois]
+
+        if df_mois.empty:
+            # Month without data
+            for key in lignes.keys():
+                lignes[key].append(None)
+        else:
+            row = df_mois.iloc[0]
+
+            lignes['Énergie (kWh)'].append(float(row['MV_CONSUMPTION']))
+            lignes['Énergie Active P (kWh)'].append(float(row['ACTIVE_PEAK_IMP'] + row['ACTIVE_PEAK_EXP']))
+            lignes['Énergie Active Off P (kWh)'].append(float(row['ACTIVE_OFF_PEAK_IMP'] + row['ACTIVE_OFF_PEAK_EXP']))
+            lignes['Puiss. Atteinte (kW)'].append(float(row['PUISSANCE_ATTEINTE']))
+            lignes['Puiss. Fact (kW)'].append(float(row['PUISSANCE A UTILISER']))
+            lignes['Temps normal (h/mois)'].append(float(row['Temps fonctionnement']))
+            lignes['Cos phi'].append(float(row['COSPHI']) if 'COSPHI' in df_year.columns and pd.notna(row.get('COSPHI')) else None)
+            lignes['Montant HT (F.CFA)'].append(float(row['AMOUNT_WITHOUT_TAX']))
+
+            # Gap cos phi
+            cosphi_val = row.get('COSPHI', 0.9) if 'COSPHI' in df_year.columns else 0.9
+            gap = float(0.9 - cosphi_val) if (pd.notna(cosphi_val) and cosphi_val < 0.9) else 0.0
+            lignes['Gap cos phi'].append(gap)
+
+            # Pénalité cos phi
+            penalite = float(row.get('MAUVAIS_COS', 0)) if 'MAUVAIS_COS' in df_year.columns else 0.0
+            lignes['Pénalité cos phi (F.CFA)'].append(penalite)
+
+            lignes['Montant TTC (F.CFA)'].append(float(row['AMOUNT_WITH_TAX']))
+
+    # Build table as list of dicts (one per indicator)
     tableau = []
-    for _, row in df_year.iterrows():
-        mois_str = pd.to_datetime(row['READING_DATE']).strftime('%B %Y')
+    for indicateur in lignes.keys():
+        row_dict = {
+            'indicateur': indicateur
+        }
 
-        tableau.append({
-            'mois': mois_str,
-            'date_releve': pd.to_datetime(row['READING_DATE']).strftime('%Y-%m-%d'),
-            'puissance_souscrite': int(row['SUBSCRIPTION_LOAD']),
-            'puissance_atteinte': int(row['PUISSANCE_ATTEINTE']),
-            'depassement': int(row['DEPASSEMENT_PUISSANCE']),
-            'consommation': float(row['MV_CONSUMPTION']),
-            'consommation_hc': float(row['CONSO HORS POINTE']),
-            'consommation_hp': float(row['CONSO POINTE']),
-            'facture_ht': float(row['AMOUNT_WITHOUT_TAX']),
-            'facture_ttc': float(row['AMOUNT_WITH_TAX']),
-            'prime_fixe': float(row['PRIME_FIXE_CALCULEE']),
-            'tarif_hc': float(row['TARIF_HORS_POINTE']),
-            'tarif_hp': float(row['TARIF_POINTE']),
-            'type_tarifaire': int(row['CATEGORIE'])
-        })
+        # Calculate annual total for summable indicators
+        if indicateur in ['Énergie (kWh)', 'Énergie Active P (kWh)', 'Énergie Active Off P (kWh)',
+                          'Montant HT (F.CFA)', 'Pénalité cos phi (F.CFA)', 'Montant TTC (F.CFA)']:
+            valeurs = [v for v in lignes[indicateur] if v is not None]
+            row_dict['annee_total'] = sum(valeurs) if valeurs else 0
+        else:
+            row_dict['annee_total'] = None  # No total for these indicators
+
+        # Add monthly values (1 to 12)
+        for mois_num in range(1, 13):
+            row_dict[str(mois_num)] = lignes[indicateur][mois_num - 1]
+
+        tableau.append(row_dict)
 
     return SyntheseResponse(
         year=year,
@@ -790,21 +837,23 @@ async def get_graphiques(
         "yaxis2_title": "Consommation (kWh)"
     }
 
-    # Graph 5: Cos(φ) if available
+    # Graph 5: Cos(φ) + Consommation if available (matches Streamlit)
     cosphi_graph = None
     if 'COSPHI' in df_year.columns and df_year['COSPHI'].notna().any():
         cosphi_graph = {
             "x": mois_labels,
-            "y": df_year['COSPHI'].tolist(),
-            "y_seuil": [0.85] * len(mois_labels),
-            "type": "scatter",
-            "title": f"Évolution du Cos(φ) - {year}",
+            "consommation": (df_year['MV_CONSUMPTION'] / 1e3).tolist(),  # MWh for bars
+            "y_cosphi": df_year['COSPHI'].tolist(),  # Cos φ curve
+            "y_seuil": [0.9] * len(mois_labels),  # Threshold line at 0.9
+            "type": "dual",  # Bar + scatter dual axis
+            "title": f"Cos(φ) et Consommation mensuelle - {year}",
             "xaxis_title": "Mois",
-            "yaxis_title": "Cos(φ)",
+            "yaxis1_title": "Consommation (MWh)",
+            "yaxis2_title": "Facteur de Puissance (Cos φ)",
             "cosphi_moyen": float(df_year['COSPHI'].mean()),
             "cosphi_min": float(df_year['COSPHI'].min()),
             "cosphi_max": float(df_year['COSPHI'].max()),
-            "nb_mois_sous_seuil": int((df_year['COSPHI'] < 0.85).sum())
+            "nb_mois_sous_seuil": int((df_year['COSPHI'] < 0.9).sum())
         }
 
     # Metrics

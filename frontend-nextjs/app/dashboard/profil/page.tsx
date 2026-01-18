@@ -574,15 +574,15 @@ export default function ProfilClientPage() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                         Cos φ max
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                         Cos φ min
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      {/*<th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                         Cos φ moyen
-                      </th>
+                      </th>*/}
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                         Mois avec Cos φ &lt; 0.9
                       </th>
@@ -606,10 +606,10 @@ export default function ProfilClientPage() {
                           ({profil_energetique.tableau5.cosphi_min.mois})
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
+                      {/*<td className="px-4 py-3 text-sm text-gray-900">
                         {profil_energetique.tableau5.cosphi_moyen.valeur}{' '}
                         {profil_energetique.tableau5.cosphi_moyen.status ? '✅' : '🔴'}
-                      </td>
+                      </td>*/}
                       <td className="px-4 py-3 text-sm text-gray-900">
                         {profil_energetique.tableau5.nb_mois_mauvais.nb} /{' '}
                         {profil_energetique.tableau5.nb_mois_mauvais.total} mois{' '}
@@ -771,6 +771,101 @@ export default function ProfilClientPage() {
               </table>
             </div>
           </Card>
+          {/* Tableau variation facturation */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Variation de la facturation TTC totale
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Indicateur
+                    </th>
+                    {profil_consommation.tableau_variation_facturation.map((row) => (
+                      <th key={row.annee} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                        {row.annee}
+                      </th>
+                    ))}
+                    {profil_consommation.tableau_variation_facturation.map((row, idx) => (
+                      idx > 0 && (
+                        <th key={`var-${idx}`} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                          Variation {profil_consommation.tableau_variation_facturation[idx-1].annee}→{row.annee}
+                        </th>
+                      )
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                      Facturation TTC totale (FCFA)
+                    </td>
+                    {profil_consommation.tableau_variation_facturation.map((row) => (
+                      <td key={row.annee} className="px-4 py-3 text-sm text-gray-900 text-center">
+                        {row.facturation.toLocaleString('fr-FR')}
+                      </td>
+                    ))}
+                    {profil_consommation.tableau_variation_facturation.map((row, idx) => (
+                      idx > 0 && row.variation !== undefined && (
+                        <td key={`var-${idx}`} className="px-4 py-3 text-sm text-gray-900 text-center">
+                          {row.variation > 1 && `+${row.variation.toFixed(1)}% ⬆️`}
+                          {row.variation < -1 && `${row.variation.toFixed(1)}% ⬇️`}
+                          {row.variation >= -1 && row.variation <= 1 && `${row.variation.toFixed(1)}% ➡️`}
+                        </td>
+                      )
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+          {/* Tableau prix unitaire */}
+          <Card className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              💰 Prix unitaire facture/consommation
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Année
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      Consommation totale (kWh)
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      Facturation totale (FCFA)
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      Prix unitaire (FCFA/kWh)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {profil_consommation.tableau_prix_unitaire.map((row) => (
+                    <tr key={row.annee}>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        {row.annee}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                        {row.consommation.toLocaleString('fr-FR')}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                        {row.facturation.toLocaleString('fr-FR')}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                        {row.prix_unitaire.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+             </table>
+            </div>
+          </Card>
+
 
           {/* Zone de texte pour analyse */}
           <Card className="mb-6 bg-blue-50">
@@ -852,102 +947,6 @@ export default function ProfilClientPage() {
               style={{ width: '100%', height: '100%' }}
               config={{ responsive: true }}
             />
-          </Card>
-
-          {/* Tableau variation facturation */}
-          <Card className="mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Variation de la facturation TTC totale
-            </h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Indicateur
-                    </th>
-                    {profil_consommation.tableau_variation_facturation.map((row) => (
-                      <th key={row.annee} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                        {row.annee}
-                      </th>
-                    ))}
-                    {profil_consommation.tableau_variation_facturation.map((row, idx) => (
-                      idx > 0 && (
-                        <th key={`var-${idx}`} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                          Variation {profil_consommation.tableau_variation_facturation[idx-1].annee}→{row.annee}
-                        </th>
-                      )
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  <tr>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      Facturation TTC totale (FCFA)
-                    </td>
-                    {profil_consommation.tableau_variation_facturation.map((row) => (
-                      <td key={row.annee} className="px-4 py-3 text-sm text-gray-900 text-center">
-                        {row.facturation.toLocaleString('fr-FR')}
-                      </td>
-                    ))}
-                    {profil_consommation.tableau_variation_facturation.map((row, idx) => (
-                      idx > 0 && row.variation !== undefined && (
-                        <td key={`var-${idx}`} className="px-4 py-3 text-sm text-gray-900 text-center">
-                          {row.variation > 1 && `+${row.variation.toFixed(1)}% ⬆️`}
-                          {row.variation < -1 && `${row.variation.toFixed(1)}% ⬇️`}
-                          {row.variation >= -1 && row.variation <= 1 && `${row.variation.toFixed(1)}% ➡️`}
-                        </td>
-                      )
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          {/* Tableau prix unitaire */}
-          <Card className="mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              💰 Prix unitaire facture/consommation
-            </h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Année
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      Consommation totale (kWh)
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      Facturation totale (FCFA)
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                      Prix unitaire (FCFA/kWh)
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {profil_consommation.tableau_prix_unitaire.map((row) => (
-                    <tr key={row.annee}>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                        {row.annee}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                        {row.consommation.toLocaleString('fr-FR')}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                        {row.facturation.toLocaleString('fr-FR')}
-                      </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
-                        {row.prix_unitaire.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </Card>
 
           {/* Zone de texte pour analyse */}
@@ -1058,68 +1057,57 @@ export default function ProfilClientPage() {
             </div>
           ) : syntheseData && graphiquesData ? (
             <>
-              {/* Tableau de synthèse */}
+              {/* Tableau de synthèse - Format Streamlit: indicateurs en lignes, mois en colonnes */}
               <Card className="mb-8">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
                   Tableau de synthèse {syntheseYear}
                 </h3>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mois</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Date relevé</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Puiss. souscrite</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Puiss. atteinte</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Dépassement</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Consommation</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conso HC</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conso HP</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Facture HT</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Facture TTC</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Prime fixe</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tarif HC</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tarif HP</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Type tarif</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 sticky left-0 bg-gray-50 z-10">
+                          Mois
+                        </th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-700 bg-blue-50">
+                          Année {syntheseYear}
+                        </th>
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                          <th key={m} className="px-3 py-2 text-right text-xs font-medium text-gray-700">
+                            {m}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {syntheseData.tableau.map((row: any, idx: number) => (
                         <tr key={idx} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{row.mois}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-center">{row.date_releve}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-center">{row.puissance_souscrite}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-center">{row.puissance_atteinte}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-center">
-                            <span className={row.depassement > 0 ? 'text-red-600 font-semibold' : ''}>
-                              {row.depassement}
-                            </span>
+                          <td className="px-3 py-2 text-xs font-semibold text-gray-900 sticky left-0 bg-white">
+                            {row.indicateur}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                            {row.consommation.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                          <td className="px-3 py-2 text-xs text-gray-900 text-right font-semibold bg-blue-50">
+                            {row.annee_total !== null && row.annee_total !== undefined
+                              ? typeof row.annee_total === 'number'
+                                ? row.annee_total >= 1000
+                                  ? row.annee_total.toLocaleString('fr-FR', { maximumFractionDigits: 0 })
+                                  : row.annee_total.toFixed(2)
+                                : row.annee_total
+                              : ''}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                            {row.consommation_hc.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                            {row.consommation_hp.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                            {row.facture_ht.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right font-semibold">
-                            {row.facture_ttc.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                            {row.prime_fixe.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                            {row.tarif_hc.toLocaleString('fr-FR', { maximumFractionDigits: 3 })}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                            {row.tarif_hp.toLocaleString('fr-FR', { maximumFractionDigits: 3 })}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-center">Type {row.type_tarifaire}</td>
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((mois) => {
+                            const val = row[mois.toString()];
+                            return (
+                              <td key={mois} className="px-3 py-2 text-xs text-gray-900 text-right">
+                                {val !== null && val !== undefined
+                                  ? typeof val === 'number'
+                                    ? val >= 1000
+                                      ? val.toLocaleString('fr-FR', { maximumFractionDigits: 0 })
+                                      : val.toFixed(2)
+                                    : val
+                                  : '-'}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -1187,7 +1175,7 @@ export default function ProfilClientPage() {
                     height: 400,
                     xaxis: { title: graphiquesData.heures_creuses_pointe.xaxis_title },
                     yaxis: { title: graphiquesData.heures_creuses_pointe.yaxis_title },
-                    barmode: 'group',
+                    barmode: 'stack',
                     showlegend: true,
                     legend: { orientation: 'h', y: -0.2 }
                   }}
@@ -1287,7 +1275,7 @@ export default function ProfilClientPage() {
                 />
               </Card>
 
-              {/* Graph 5: Cos(φ) if available */}
+              {/* Graph 5: Cos(φ) + Consommation if available (dual axis) */}
               {graphiquesData.cosphi && (
                 <Card className="mb-6">
                   <h4 className="text-lg font-semibold text-gray-900 mb-4">
@@ -1297,27 +1285,49 @@ export default function ProfilClientPage() {
                     data={[
                       {
                         x: graphiquesData.cosphi.x,
-                        y: graphiquesData.cosphi.y,
+                        y: graphiquesData.cosphi.consommation,
+                        type: 'bar',
+                        name: 'Consommation',
+                        marker: { color: '#66B2FF', opacity: 0.6 },
+                        yaxis: 'y'
+                      },
+                      {
+                        x: graphiquesData.cosphi.x,
+                        y: graphiquesData.cosphi.y_cosphi,
                         type: 'scatter',
                         mode: 'lines+markers',
                         name: 'Cos φ',
-                        line: { color: '#9C27B0', width: 2 },
-                        marker: { size: 8 }
+                        line: { color: '#FF6B6B', width: 3 },
+                        marker: { size: 10, symbol: 'diamond' },
+                        yaxis: 'y2'
                       },
                       {
                         x: graphiquesData.cosphi.x,
                         y: graphiquesData.cosphi.y_seuil,
                         type: 'scatter',
                         mode: 'lines',
-                        name: 'Seuil (0.85)',
-                        line: { color: '#FFA500', width: 2, dash: 'dash' }
+                        name: 'Seuil référence (0.9)',
+                        line: { color: 'red', width: 2, dash: 'dash' },
+                        yaxis: 'y2'
                       }
                     ]}
                     layout={{
                       autosize: true,
                       height: 400,
                       xaxis: { title: graphiquesData.cosphi.xaxis_title },
-                      yaxis: { title: graphiquesData.cosphi.yaxis_title },
+                      yaxis: {
+                        title: graphiquesData.cosphi.yaxis1_title,
+                        titlefont: { color: '#66B2FF' },
+                        tickfont: { color: '#66B2FF' }
+                      },
+                      yaxis2: {
+                        title: graphiquesData.cosphi.yaxis2_title,
+                        titlefont: { color: '#FF6B6B' },
+                        tickfont: { color: '#FF6B6B' },
+                        overlaying: 'y',
+                        side: 'right',
+                        range: [0, 1]
+                      },
                       showlegend: true,
                       legend: { orientation: 'h', y: -0.2 }
                     }}
