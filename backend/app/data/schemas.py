@@ -73,15 +73,14 @@ class GraphiquesResponse(BaseModel):
 
 
 class TarifsProfilInfo(BaseModel):
-    """Tariffs information for profile display"""
+    """Tariffs information for profile display - matches Streamlit display"""
     type_tarifaire: int
     categorie: str  # "Petit client" ou "Gros client"
     plage_horaire: str
     intervalle_min: float
     intervalle_max: float
-    tarif_hc: float
-    tarif_hp: float
-    prime_fixe: float
+    # Tableau des tarifs par plage de temps de fonctionnement
+    tableau_tarifs: List[Dict[str, Any]]  # Liste de {temps_fonctionnement, tarif_hc, tarif_hp, prime_fixe}
 
 
 class ProfilClientResponse(BaseModel):
@@ -107,7 +106,7 @@ class ReconstitutionResponse(BaseModel):
     annees_disponibles: List[int]
 
     # 4 Métriques globales
-    metriques_globales: Dict[str, Any]  # facture_reelle_total, facture_calculee_total, gap_total, nb_depassements
+    metriques_globales: Dict[str, Any]  # facture_reelle_total, facture_calculee_total, gap_total, gap_pct, nb_depassements
 
     # Tableau détaillé mensuel
     tableau_mensuel: List[Dict[str, Any]]  # Mois, Puissance souscrite, atteinte, Dépassement, Type tarifaire, Facture réelle, recalculée, Écart
@@ -117,3 +116,53 @@ class ReconstitutionResponse(BaseModel):
 
     # Graph 2: Écarts mensuels (Gap)
     graph_ecarts: Dict[str, Any]
+
+    # Graph 3: Décomposition de la facture recalculée (stacked bars: HC + HP + Prime fixe)
+    graph_decomposition: Dict[str, Any]
+
+
+class OptimisationInitResponse(BaseModel):
+    """Response for optimisation initialization endpoint"""
+    year: int
+    annee_N_plus_1: int
+    nom_client: str
+    service_no: str
+    annees_disponibles: List[int]
+
+    # Configuration actuelle (5 métriques)
+    config_actuelle: Dict[str, Any]  # puissance_actuelle, puissance_max, type_actuel, cout_annuel, nb_depassements
+
+    # Statistiques puissance
+    stats_puissance: Dict[str, Any]  # min, max, moyenne
+
+    # Tarifs actuels
+    tarifs_actuels: Dict[str, Any]
+
+
+class OptimisationSimulationRequest(BaseModel):
+    """Request for simulation with new power"""
+    year: int
+    nouvelle_puissance: float
+
+
+class OptimisationSimulationResponse(BaseModel):
+    """Response for simulation with new power"""
+    year: int
+    annee_N_plus_1: int
+    nouvelle_puissance: float
+    type_optimise: int
+
+    # Info nouvelle puissance
+    info_nouvelle_puissance: Dict[str, Any]  # type, intervalle, variation
+
+    # Tarifs nouvelle puissance
+    tarifs_nouvelle_puissance: Dict[str, Any]
+
+    # Résultats simulation Section 1
+    resultats_simulation: Dict[str, Any]  # metriques financières, dépassements, graphiques, tableau, tableau_synthese
+
+    # Résultats projection Section 2
+    resultats_projection: Dict[str, Any]  # métriques, graphiques, tableau, tarifs_N_plus_1, tableau_synthese
+
+    # Résultats optimisation Section 3 (année N+1 avec puissance optimisée)
+    resultats_optimisation_N_plus_1: Dict[str, Any]  # métriques, graphiques, tableau, tarifs, tableau_synthese

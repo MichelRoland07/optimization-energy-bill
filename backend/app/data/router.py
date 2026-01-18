@@ -10,12 +10,13 @@ from io import BytesIO
 from ..auth.models import User
 from ..auth.utils import get_current_user
 from ..database import get_db
-from ..core import calculs, synthese as synthese_module
+from ..core import calculs, synthese as synthese_module, optimisation
 from ..core.config import type_table, tarifs_small, tarifs_big
 from .schemas import (
     UploadResponse, ServiceInfo, ServiceSelection,
     ServiceSelectionResponse, SyntheseResponse, GraphiquesResponse,
-    ProfilClientResponse, TarifsProfilInfo, ReconstitutionResponse
+    ProfilClientResponse, TarifsProfilInfo, ReconstitutionResponse,
+    OptimisationInitResponse, OptimisationSimulationRequest, OptimisationSimulationResponse
 )
 from .session_manager import session_manager
 
@@ -38,17 +39,16 @@ def calculer_coefficient_annee(annee: int, puissance: float) -> float:
     """
     Calculate year coefficient based on year and power
     Matches the logic in calculs.calcul_augmentation
+    Base year is 2023
     """
-    if annee < 2024:
+    annees_ecart = annee - 2023
+    if annees_ecart <= 0:
         return 1.0
-    elif annee == 2024:
-        return 1.05 if puissance < 3000 else 1.1
-    elif annee == 2025:
-        return 1.05**2 if puissance < 3000 else 1.1**2
-    elif annee == 2026:
-        return 1.05**3 if puissance < 3000 else 1.1**3
+
+    if puissance < 3000:
+        return 1.05 ** annees_ecart  # 5% per year for small clients
     else:
-        return 1.0
+        return 1.1 ** annees_ecart   # 10% per year for large clients
 
 
 def calculer_tarifs_profil(puissance: float, annee: int) -> TarifsProfilInfo:
@@ -61,14 +61,14 @@ def calculer_tarifs_profil(puissance: float, annee: int) -> TarifsProfilInfo:
         annee: Year for tariff calculation
 
     Returns:
-        TarifsProfilInfo with all tariff details
+        TarifsProfilInfo with all tariff details including full table by operating time ranges
     """
     # Determine category and coefficients
     if puissance < 3000:
-        categorie = "Petit client"
+        categorie = "Petit client (≤3000 kW)"
         tarifs_dict = tarifs_small
     else:
-        categorie = "Gros client"
+        categorie = "Gros client (>3000 kW)"
         tarifs_dict = tarifs_big
 
     # Calculate coefficients based on year
@@ -95,26 +95,49 @@ def calculer_tarifs_profil(puissance: float, annee: int) -> TarifsProfilInfo:
         # Gros client (types 6-12)
         plage_horaire = "Double"
 
-    # Get tariffs - this is simplified, actual tariff selection depends on temps_fonctionnement
-    # For profile display, we use a representative value
-    tarif_hc = 0.0
-    tarif_hp = 0.0
-    prime_fixe = 0.0
+    # Build complete tariff table matching Streamlit display
+    tableau_tarifs = []
 
-    # For simplicity, use middle range values
-    # This is for display only - actual calculations are done in calculs.py
-    if puissance < 3000:
-        # Petit client - use sup_400 as default
-        tarif_hc = 50 * coeff_annee
-        tarif_hp = 95 * coeff_annee
-        prime_fixe = 6000 * coeff_annee
+    if type_tarifaire <= 5:
+        # Petit client - 3 plages de temps de fonctionnement
+        idx = type_tarifaire - 1  # Type 1 -> index 0
+
+        if idx < len(tarifs_small["0_200"]["off"]):
+            tableau_tarifs.append({
+                "temps_fonctionnement": "0-200h",
+                "tarif_hc": round(tarifs_small["0_200"]["off"][idx] * coeff_annee, 3),
+                "tarif_hp": round(tarifs_small["0_200"]["peak"][idx] * coeff_annee, 3),
+                "prime_fixe": round(tarifs_small["0_200"]["pf"][idx] * coeff_annee, 2)
+            })
+            tableau_tarifs.append({
+                "temps_fonctionnement": "201-400h",
+                "tarif_hc": round(tarifs_small["201_400"]["off"][idx] * coeff_annee, 3),
+                "tarif_hp": round(tarifs_small["201_400"]["peak"][idx] * coeff_annee, 3),
+                "prime_fixe": round(tarifs_small["201_400"]["pf"][idx] * coeff_annee, 2)
+            })
+            tableau_tarifs.append({
+                "temps_fonctionnement": ">400h",
+                "tarif_hc": round(tarifs_small["sup_400"]["off"][idx] * coeff_annee, 3),
+                "tarif_hp": round(tarifs_small["sup_400"]["peak"][idx] * coeff_annee, 3),
+                "prime_fixe": round(tarifs_small["sup_400"]["pf"][idx] * coeff_annee, 2)
+            })
     else:
-        # Gros client - use sup_400 as default
+        # Gros client - 2 plages de temps de fonctionnement
         idx = type_tarifaire - 6  # Type 6 -> index 0
-        if idx < len(tarifs_big["sup_400"]["off"]):
-            tarif_hc = tarifs_big["sup_400"]["off"][idx] * coeff_annee
-            tarif_hp = tarifs_big["sup_400"]["peak"][idx] * coeff_annee
-            prime_fixe = tarifs_big["sup_400"]["pf"][idx] * coeff_annee
+
+        if idx < len(tarifs_big["0_400"]["off"]):
+            tableau_tarifs.append({
+                "temps_fonctionnement": "0-400h",
+                "tarif_hc": round(tarifs_big["0_400"]["off"][idx] * coeff_annee, 3),
+                "tarif_hp": round(tarifs_big["0_400"]["peak"][idx] * coeff_annee, 3),
+                "prime_fixe": round(tarifs_big["0_400"]["pf"][idx] * coeff_annee, 2)
+            })
+            tableau_tarifs.append({
+                "temps_fonctionnement": ">400h",
+                "tarif_hc": round(tarifs_big["sup_400"]["off"][idx] * coeff_annee, 3),
+                "tarif_hp": round(tarifs_big["sup_400"]["peak"][idx] * coeff_annee, 3),
+                "prime_fixe": round(tarifs_big["sup_400"]["pf"][idx] * coeff_annee, 2)
+            })
 
     return TarifsProfilInfo(
         type_tarifaire=type_tarifaire,
@@ -122,9 +145,7 @@ def calculer_tarifs_profil(puissance: float, annee: int) -> TarifsProfilInfo:
         plage_horaire=plage_horaire,
         intervalle_min=intervalle_min,
         intervalle_max=intervalle_max,
-        tarif_hc=tarif_hc,
-        tarif_hp=tarif_hp,
-        prime_fixe=prime_fixe
+        tableau_tarifs=tableau_tarifs
     )
 
 
@@ -368,9 +389,8 @@ async def get_profil_client(
         'type_tarifaire': f"Type {tarifs_info.type_tarifaire}",
         'categorie': tarifs_info.categorie,
         'plage_horaire': tarifs_info.plage_horaire,
-        'tarif_hc': f"{tarifs_info.tarif_hc:.3f} FCFA/kWh",
-        'tarif_hp': f"{tarifs_info.tarif_hp:.3f} FCFA/kWh",
-        'prime_fixe': f"{tarifs_info.prime_fixe:.2f} FCFA/kW"
+        'intervalle': f"{tarifs_info.intervalle_min:.0f} - {tarifs_info.intervalle_max:.0f} kW",
+        'tableau_tarifs': tarifs_info.tableau_tarifs
     }
 
     # Tableau 1bis: Projection N+1 (only if year == 2025)
@@ -382,9 +402,8 @@ async def get_profil_client(
             'type_tarifaire': f"Type {tarifs_info_suivante.type_tarifaire}",
             'categorie': tarifs_info_suivante.categorie,
             'plage_horaire': tarifs_info_suivante.plage_horaire,
-            'tarif_hc': f"{tarifs_info_suivante.tarif_hc:.3f} FCFA/kWh",
-            'tarif_hp': f"{tarifs_info_suivante.tarif_hp:.3f} FCFA/kWh",
-            'prime_fixe': f"{tarifs_info_suivante.prime_fixe:.2f} FCFA/kW"
+            'intervalle': f"{tarifs_info_suivante.intervalle_min:.0f} - {tarifs_info_suivante.intervalle_max:.0f} kW",
+            'tableau_tarifs': tarifs_info_suivante.tableau_tarifs
         }
 
     # Tableau 2: Puissances atteintes
@@ -949,11 +968,12 @@ async def get_multi_service_dashboard(
 
 @router.get("/reconstitution", response_model=ReconstitutionResponse)
 async def get_reconstitution(
-    year: int,
+    year: Optional[int] = None,
     current_user: User = Depends(get_current_user)
 ):
     """
     Get reconstitution data for invoice reconstruction
+    If year is not provided, uses the most recent year available
     Returns:
     - Global metrics (facture réelle, recalculée, gap, dépassements)
     - Monthly detail table
@@ -971,6 +991,10 @@ async def get_reconstitution(
     # Get available years
     df['ANNEE'] = pd.to_datetime(df['READING_DATE']).dt.year
     annees_disponibles = sorted(df['ANNEE'].unique().tolist(), reverse=True)
+
+    # If no year provided, use the most recent year (first in reversed sorted list)
+    if year is None:
+        year = annees_disponibles[0]
 
     # Validate year
     if year not in annees_disponibles:
@@ -998,12 +1022,15 @@ async def get_reconstitution(
     )
 
     gap_total = facture_calculee_total - facture_reelle_total
+    # Calculate gap percentage
+    gap_pct = (gap_total / facture_reelle_total * 100) if facture_reelle_total > 0 else 0
     nb_depassements = int((df_year['DEPASSEMENT_PUISSANCE'] > 0).sum())
 
     metriques_globales = {
         "facture_reelle_total": facture_reelle_total,
         "facture_calculee_total": facture_calculee_total,
         "gap_total": gap_total,
+        "gap_pct": gap_pct,
         "nb_depassements": nb_depassements
     }
 
@@ -1020,6 +1047,8 @@ async def get_reconstitution(
              (row['PUISSANCE A UTILISER'] * row['PRIME_FIXE_CALCULEE'])) * (1 + 0.1925)
         )
         ecart = facture_calculee - facture_reelle
+        # Consider gaps < 100 FCFA as 0 (non-significant)
+        ecart_display = ecart if abs(ecart) >= 100 else 0
 
         tableau_mensuel.append({
             'mois': mois_str,
@@ -1029,7 +1058,7 @@ async def get_reconstitution(
             'type_tarifaire': int(row['CATEGORIE']),
             'facture_reelle': facture_reelle,
             'facture_calculee': facture_calculee,
-            'ecart': ecart
+            'ecart': ecart_display
         })
 
     # === GRAPH 1: Comparison (Real vs Recalculated) ===
@@ -1055,14 +1084,36 @@ async def get_reconstitution(
 
     # === GRAPH 2: Monthly Gaps ===
     ecarts = [calc - reel for calc, reel in zip(factures_calculees, factures_reelles)]
+    # Consider gaps < 100 FCFA as 0 (non-significant)
+    ecarts_display = [e if abs(e) >= 100 else 0 for e in ecarts]
+    # Format text for display on bars (in millions)
+    ecarts_text = [f"{e/1e6:.2f}M" for e in ecarts_display]
 
     graph_ecarts = {
         "x": mois_labels,
-        "y": ecarts,
+        "y": ecarts_display,
+        "text": ecarts_text,
         "type": "bar",
         "title": f"Écarts mensuels (Gap) - {year}",
         "xaxis_title": "Mois",
         "yaxis_title": "Écart (FCFA)"
+    }
+
+    # === GRAPH 3: Décomposition de la facture recalculée (stacked bars) ===
+    # Heures creuses + Heures pointe + Prime fixe (all with TVA)
+    heures_creuses_ttc = (df_year['FACTURATION HORS POINTE'] * (1 + 0.1925)).tolist()
+    heures_pointe_ttc = (df_year['FACTURATION POINTE'] * (1 + 0.1925)).tolist()
+    prime_fixe_ttc = ((df_year['PUISSANCE A UTILISER'] * df_year['PRIME_FIXE_CALCULEE']) * (1 + 0.1925)).tolist()
+
+    graph_decomposition = {
+        "x": mois_labels,
+        "y_hc": heures_creuses_ttc,
+        "y_hp": heures_pointe_ttc,
+        "y_prime": prime_fixe_ttc,
+        "type": "stacked_bar",
+        "title": f"Décomposition de la facture recalculée - {year}",
+        "xaxis_title": "Mois",
+        "yaxis_title": "Montant TTC (FCFA)"
     }
 
     return ReconstitutionResponse(
@@ -1073,5 +1124,509 @@ async def get_reconstitution(
         metriques_globales=metriques_globales,
         tableau_mensuel=tableau_mensuel,
         graph_comparaison=graph_comparaison,
-        graph_ecarts=graph_ecarts
+        graph_ecarts=graph_ecarts,
+        graph_decomposition=graph_decomposition
+    )
+
+
+@router.get("/optimisation/init", response_model=OptimisationInitResponse)
+async def get_optimisation_init(
+    year: Optional[int] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Initialize optimisation page with current configuration
+    If year is not provided, uses the most recent year available
+    """
+    # Get user's data
+    df = session_manager.get_user_data(current_user.id)
+    if df is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune donnée trouvée. Veuillez d'abord uploader un fichier."
+        )
+
+    # Get available years
+    df['ANNEE'] = pd.to_datetime(df['READING_DATE']).dt.year
+    annees_disponibles = sorted(df['ANNEE'].unique().tolist(), reverse=True)
+
+    # If no year provided, use the most recent year
+    if year is None:
+        year = annees_disponibles[0]
+
+    # Validate year
+    if year not in annees_disponibles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Année {year} non disponible dans les données"
+        )
+
+    # Filter for year
+    df_year = df[df['ANNEE'] == year].copy()
+    df_year = df_year.sort_values('READING_DATE')
+
+    # Extract info
+    nom_client = str(df_year.iloc[0]['CUST_NAME'])
+    service_no = str(df_year.iloc[0]['SERVICE_NO'])
+    annee_N_plus_1 = year + 1
+
+    # === CONFIGURATION ACTUELLE ===
+    puissance_actuelle = int(df_year['SUBSCRIPTION_LOAD'].iloc[0])
+    puissance_atteinte_max = float(df_year['PUISSANCE_ATTEINTE'].max())
+    cout_actuel_total = float(df_year['AMOUNT_WITH_TAX'].sum())
+    nb_depassements_actuel = int((df_year['PUISSANCE_ATTEINTE'] > puissance_actuelle).sum())
+
+    # Type actuel
+    row_type_actuel = type_table[
+        (type_table['min'] <= puissance_actuelle) &
+        (puissance_actuelle < type_table['max'])
+    ]
+    type_actuel = int(row_type_actuel['type'].values[0]) if not row_type_actuel.empty else 0
+
+    config_actuelle = {
+        "puissance_actuelle": puissance_actuelle,
+        "puissance_max": puissance_atteinte_max,
+        "type_actuel": type_actuel,
+        "cout_annuel": cout_actuel_total,
+        "nb_depassements": nb_depassements_actuel
+    }
+
+    # === STATISTIQUES PUISSANCE ===
+    stats_puissance = {
+        "min": float(df_year['PUISSANCE_ATTEINTE'].min()),
+        "max": puissance_atteinte_max,
+        "moyenne": float(df_year['PUISSANCE_ATTEINTE'].mean())
+    }
+
+    # === TARIFS ACTUELS ===
+    tarifs_actuels = calculer_tarifs_profil(puissance_actuelle, year)
+
+    return OptimisationInitResponse(
+        year=year,
+        annee_N_plus_1=annee_N_plus_1,
+        nom_client=nom_client,
+        service_no=service_no,
+        annees_disponibles=annees_disponibles,
+        config_actuelle=config_actuelle,
+        stats_puissance=stats_puissance,
+        tarifs_actuels=tarifs_actuels.dict()
+    )
+
+
+@router.post("/optimisation/simulate", response_model=OptimisationSimulationResponse)
+async def post_optimisation_simulate(
+    request: OptimisationSimulationRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Simulate with new power subscription
+    Returns Section 1 (Optimisation année N) and Section 2 (Projection année N+1)
+    """
+    year = request.year
+    nouvelle_puissance = request.nouvelle_puissance
+    annee_N_plus_1 = year + 1
+
+    # Get user's data
+    df = session_manager.get_user_data(current_user.id)
+    if df is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune donnée trouvée"
+        )
+
+    # Filter for year
+    df['ANNEE'] = pd.to_datetime(df['READING_DATE']).dt.year
+    df_year = df[df['ANNEE'] == year].copy()
+    df_year = df_year.sort_values('READING_DATE')
+
+    puissance_actuelle = int(df_year['SUBSCRIPTION_LOAD'].iloc[0])
+    puissance_atteinte_max = float(df_year['PUISSANCE_ATTEINTE'].max())
+
+    # Type pour nouvelle puissance
+    row_type_optimise = type_table[
+        (type_table['min'] <= nouvelle_puissance) &
+        (nouvelle_puissance < type_table['max'])
+    ]
+    type_optimise = int(row_type_optimise['type'].values[0]) if not row_type_optimise.empty else 0
+
+    # Type actuel
+    row_type_actuel = type_table[
+        (type_table['min'] <= puissance_actuelle) &
+        (puissance_actuelle < type_table['max'])
+    ]
+    type_actuel = int(row_type_actuel['type'].values[0]) if not row_type_actuel.empty else 0
+
+    # === INFO NOUVELLE PUISSANCE ===
+    delta_puissance = nouvelle_puissance - puissance_actuelle
+    nb_mois_depassement = int((df_year['PUISSANCE_ATTEINTE'] > nouvelle_puissance).sum())
+
+    # Détecter si risque de dépassement
+    alerte_depassement = None
+    if nouvelle_puissance < puissance_atteinte_max:
+        alerte_depassement = {
+            "type": "error",
+            "message": f"Risque de dépassements ! La puissance saisie ({nouvelle_puissance:.0f} kW) est inférieure à votre puissance maximale atteinte ({puissance_atteinte_max:.0f} kW). Vous aurez des dépassements sur {nb_mois_depassement} mois."
+        }
+    elif nouvelle_puissance >= puissance_atteinte_max and nouvelle_puissance < puissance_actuelle:
+        alerte_depassement = {
+            "type": "success",
+            "message": f"Bonne configuration ! La puissance saisie ({nouvelle_puissance:.0f} kW) est supérieure à votre puissance maximale atteinte ({puissance_atteinte_max:.0f} kW). Aucun dépassement prévu."
+        }
+
+    # Intervalle type
+    intervalle = type_table[type_table['type'] == type_optimise]
+    intervalle_min = float(intervalle['min'].values[0]) if not intervalle.empty else 0
+    intervalle_max = float(intervalle['max'].values[0]) if not intervalle.empty else 0
+
+    info_nouvelle_puissance = {
+        "type_optimise": type_optimise,
+        "type_actuel": type_actuel,
+        "type_change": "identique" if type_optimise == type_actuel else ("descente" if type_optimise < type_actuel else "montee"),
+        "intervalle_min": intervalle_min,
+        "intervalle_max": intervalle_max,
+        "delta_puissance": delta_puissance,
+        "alerte_depassement": alerte_depassement
+    }
+
+    # === TARIFS NOUVELLE PUISSANCE ===
+    tarifs_nouvelle_puissance = calculer_tarifs_profil(nouvelle_puissance, year)
+
+    # ========================================
+    # SECTION 1 : OPTIMISATION année N
+    # ========================================
+
+    # Simuler avec nouvelle puissance pour année N
+    resultats_simulation_data = []
+    cout_optimise_total = 0
+    nb_depassements_optimise = 0
+
+    for _, row in df_year.iterrows():
+        resultat_mois = optimisation.calculer_facture_avec_puissance(row, nouvelle_puissance, annee=year)
+        if resultat_mois:
+            mois_str = pd.to_datetime(row['READING_DATE']).strftime('%B %Y')
+            facture_actuelle = float(row['AMOUNT_WITH_TAX'])
+            facture_simulee = float(resultat_mois['facture_ttc'])
+            economie = facture_actuelle - facture_simulee
+
+            resultats_simulation_data.append({
+                'mois': mois_str,
+                'puissance_atteinte': float(row['PUISSANCE_ATTEINTE']),
+                'facture_actuelle': facture_actuelle,
+                'facture_simulee': facture_simulee,
+                'economie': economie,
+                'depassement_actuel': bool(row['PUISSANCE_ATTEINTE'] > puissance_actuelle),
+                'depassement_simule': bool(resultat_mois['depassement'])
+            })
+
+            cout_optimise_total += facture_simulee
+            if resultat_mois['depassement']:
+                nb_depassements_optimise += 1
+
+    cout_actuel_total = float(df_year['AMOUNT_WITH_TAX'].sum())
+    economie_totale = cout_actuel_total - cout_optimise_total
+    economie_pct = (economie_totale / cout_actuel_total * 100) if cout_actuel_total > 0 else 0
+    economie_mensuelle_moyenne = economie_totale / 12
+
+    # Métriques financières
+    metriques_financieres = {
+        "cout_actuel": cout_actuel_total,
+        "cout_optimise": cout_optimise_total,
+        "economie_annuelle": economie_totale,
+        "economie_pct": economie_pct,
+        "economie_mensuelle": economie_mensuelle_moyenne
+    }
+
+    # Métriques dépassements
+    nb_depassements_actuel = int((df_year['PUISSANCE_ATTEINTE'] > puissance_actuelle).sum())
+    delta_depassements = nb_depassements_optimise - nb_depassements_actuel
+
+    metriques_depassements = {
+        "nb_depassements_actuel": nb_depassements_actuel,
+        "nb_depassements_optimise": nb_depassements_optimise,
+        "delta_depassements": delta_depassements
+    }
+
+    # Alerte économie
+    alerte_economie = None
+    if type_actuel == type_optimise and abs(economie_pct) < 2:
+        alerte_economie = {
+            "type": "warning",
+            "message": f"Même type tarifaire - Économie limitée. L'économie de {economie_pct:.2f}% provient uniquement de la différence de prime fixe."
+        }
+    elif economie_pct > 0:
+        alerte_economie = {
+            "type": "success",
+            "message": f"Économie positive de {economie_pct:.1f}%. Cette configuration permettrait une économie de {economie_totale:,.0f} FCFA sur l'année {year}."
+        }
+    elif economie_pct < 0:
+        alerte_economie = {
+            "type": "error",
+            "message": f"Surcoût de {abs(economie_pct):.1f}%. Cette configuration entraînerait un surcoût de {abs(economie_totale):,.0f} FCFA sur l'année {year}."
+        }
+
+    # Graphiques Section 1
+    mois_labels = [r['mois'] for r in resultats_simulation_data]
+    factures_actuelles = [r['facture_actuelle'] for r in resultats_simulation_data]
+    factures_simulees = [r['facture_simulee'] for r in resultats_simulation_data]
+    economies = [r['economie'] for r in resultats_simulation_data]
+
+    graph_factures = {
+        "x": mois_labels,
+        "y_actuelle": factures_actuelles,
+        "y_simulee": factures_simulees,
+        "title": f"Comparaison des factures mensuelles {year}",
+        "xaxis_title": "Mois",
+        "yaxis_title": "Montant TTC (FCFA)"
+    }
+
+    economies_text = [f"{e/1e6:.1f}M" for e in economies]
+    graph_economies = {
+        "x": mois_labels,
+        "y": economies,
+        "text": economies_text,
+        "title": "Économies mensuelles (positif = gain, négatif = perte)",
+        "xaxis_title": "Mois",
+        "yaxis_title": "Économie (FCFA)"
+    }
+
+    resultats_simulation = {
+        "metriques_financieres": metriques_financieres,
+        "metriques_depassements": metriques_depassements,
+        "alerte_economie": alerte_economie,
+        "graph_factures": graph_factures,
+        "graph_economies": graph_economies,
+        "tableau_mensuel": resultats_simulation_data
+    }
+
+    # ========================================
+    # SECTION 2 : PROJECTION année N+1
+    # ========================================
+
+    # Calculer projection N+1 avec puissance actuelle
+    resultats_projection_data = []
+    cout_projection_N_plus_1_total = 0
+    nb_depassements_projection = 0
+
+    for _, row in df_year.iterrows():
+        resultat_mois = optimisation.calculer_facture_avec_puissance(row, puissance_actuelle, annee=annee_N_plus_1)
+        if resultat_mois:
+            mois_str = pd.to_datetime(row['READING_DATE']).strftime('%B %Y')
+            facture_N = float(row['AMOUNT_WITH_TAX'])
+            facture_N_plus_1 = float(resultat_mois['facture_ttc'])
+            augmentation = facture_N_plus_1 - facture_N
+
+            resultats_projection_data.append({
+                'mois': mois_str,
+                'puissance_atteinte': float(row['PUISSANCE_ATTEINTE']),
+                'facture_N': facture_N,
+                'facture_N_plus_1': facture_N_plus_1,
+                'augmentation': augmentation,
+                'depassement': bool(resultat_mois['depassement'])
+            })
+
+            cout_projection_N_plus_1_total += facture_N_plus_1
+            if resultat_mois['depassement']:
+                nb_depassements_projection += 1
+
+    augmentation_totale = cout_projection_N_plus_1_total - cout_actuel_total
+    augmentation_pct = (augmentation_totale / cout_actuel_total * 100) if cout_actuel_total > 0 else 0
+    augmentation_mensuelle = augmentation_totale / 12
+
+    # Métriques projection
+    metriques_projection = {
+        "cout_N": cout_actuel_total,
+        "cout_N_plus_1": cout_projection_N_plus_1_total,
+        "augmentation_annuelle": augmentation_totale,
+        "augmentation_pct": augmentation_pct,
+        "augmentation_mensuelle": augmentation_mensuelle,
+        "nb_depassements": nb_depassements_projection
+    }
+
+    # Graphiques Section 2
+    mois_labels_proj = [r['mois'] for r in resultats_projection_data]
+    factures_N = [r['facture_N'] for r in resultats_projection_data]
+    factures_N_plus_1 = [r['facture_N_plus_1'] for r in resultats_projection_data]
+    augmentations = [r['augmentation'] for r in resultats_projection_data]
+
+    graph_projection_factures = {
+        "x": mois_labels_proj,
+        "y_N": factures_N,
+        "y_N_plus_1": factures_N_plus_1,
+        "title": f"Comparaison des factures mensuelles : {year} vs Projection {annee_N_plus_1}",
+        "xaxis_title": "Mois",
+        "yaxis_title": "Montant TTC (FCFA)"
+    }
+
+    augmentations_text = [f"+{a/1e6:.1f}M" if a >= 0 else f"{a/1e6:.1f}M" for a in augmentations]
+    graph_projection_augmentations = {
+        "x": mois_labels_proj,
+        "y": augmentations,
+        "text": augmentations_text,
+        "title": f"Augmentation mensuelle en {annee_N_plus_1} (positif = augmentation, négatif = diminution)",
+        "xaxis_title": "Mois",
+        "yaxis_title": "Augmentation (FCFA)"
+    }
+
+    # Tarifs N+1
+    tarifs_N_plus_1 = calculer_tarifs_profil(puissance_actuelle, annee_N_plus_1)
+
+    # === TABLEAU DE SYNTHESE PROJECTION N+1 ===
+    # Create DataFrame for projection results
+    df_projection_results = pd.DataFrame(resultats_projection_data)
+    df_projection_results['Facture_2025'] = df_projection_results['facture_N']
+    df_projection_results['Facture_Projection_2026'] = df_projection_results['facture_N_plus_1']
+
+    nom_client = str(df_year.iloc[0]['CUST_NAME'])
+    tableau_synthese_projection = synthese_module.generer_tableau_synthese_projection_2026(
+        df_year, df_projection_results, puissance_actuelle, nom_client
+    )
+
+    # Convert DataFrame to dict for JSON response
+    tableau_synthese_projection_dict = None
+    if tableau_synthese_projection is not None:
+        tableau_synthese_projection_dict = tableau_synthese_projection.to_dict('records')
+
+    resultats_projection = {
+        "metriques_projection": metriques_projection,
+        "graph_factures": graph_projection_factures,
+        "graph_augmentations": graph_projection_augmentations,
+        "tableau_mensuel": resultats_projection_data,
+        "tarifs_N_plus_1": tarifs_N_plus_1.dict(),
+        "tableau_synthese": tableau_synthese_projection_dict
+    }
+
+    # ========================================
+    # SECTION 3 : OPTIMISATION année N+1 avec puissance optimisée
+    # ========================================
+
+    # Calculer optimisation N+1 avec nouvelle puissance
+    resultats_optimisation_N_plus_1_data = []
+    cout_optimisation_N_plus_1_total = 0
+    nb_depassements_optimisation = 0
+
+    for _, row in df_year.iterrows():
+        resultat_mois = optimisation.calculer_facture_avec_puissance(row, nouvelle_puissance, annee=annee_N_plus_1)
+        if resultat_mois:
+            mois_str = pd.to_datetime(row['READING_DATE']).strftime('%B %Y')
+            facture_N = float(row['AMOUNT_WITH_TAX'])
+            facture_N_plus_1_actuelle = resultats_projection_data[len(resultats_optimisation_N_plus_1_data)]['facture_N_plus_1']
+            facture_N_plus_1_optimisee = float(resultat_mois['facture_ttc'])
+            economie_vs_projection = facture_N_plus_1_actuelle - facture_N_plus_1_optimisee
+            economie_vs_N = facture_N - facture_N_plus_1_optimisee
+
+            resultats_optimisation_N_plus_1_data.append({
+                'mois': mois_str,
+                'puissance_atteinte': float(row['PUISSANCE_ATTEINTE']),
+                'facture_N': facture_N,
+                'facture_N_plus_1_actuelle': facture_N_plus_1_actuelle,
+                'facture_N_plus_1_optimisee': facture_N_plus_1_optimisee,
+                'economie_vs_projection': economie_vs_projection,
+                'economie_vs_N': economie_vs_N,
+                'depassement': bool(resultat_mois['depassement'])
+            })
+
+            cout_optimisation_N_plus_1_total += facture_N_plus_1_optimisee
+            if resultat_mois['depassement']:
+                nb_depassements_optimisation += 1
+
+    economie_vs_projection_totale = cout_projection_N_plus_1_total - cout_optimisation_N_plus_1_total
+    economie_vs_projection_pct = (economie_vs_projection_totale / cout_projection_N_plus_1_total * 100) if cout_projection_N_plus_1_total > 0 else 0
+
+    economie_vs_N_totale = cout_actuel_total - cout_optimisation_N_plus_1_total
+    economie_vs_N_pct = (economie_vs_N_totale / cout_actuel_total * 100) if cout_actuel_total > 0 else 0
+
+    # Métriques optimisation N+1
+    metriques_optimisation_N_plus_1 = {
+        "cout_N": cout_actuel_total,
+        "cout_N_plus_1_actuelle": cout_projection_N_plus_1_total,
+        "cout_N_plus_1_optimisee": cout_optimisation_N_plus_1_total,
+        "economie_vs_projection": economie_vs_projection_totale,
+        "economie_vs_projection_pct": economie_vs_projection_pct,
+        "economie_vs_N": economie_vs_N_totale,
+        "economie_vs_N_pct": economie_vs_N_pct,
+        "nb_depassements": nb_depassements_optimisation
+    }
+
+    # Graphiques Section 3
+    mois_labels_opt = [r['mois'] for r in resultats_optimisation_N_plus_1_data]
+    factures_N_opt = [r['facture_N'] for r in resultats_optimisation_N_plus_1_data]
+    factures_N_plus_1_actuelles = [r['facture_N_plus_1_actuelle'] for r in resultats_optimisation_N_plus_1_data]
+    factures_N_plus_1_optimisees = [r['facture_N_plus_1_optimisee'] for r in resultats_optimisation_N_plus_1_data]
+
+    graph_optimisation_factures = {
+        "x": mois_labels_opt,
+        "y_N": factures_N_opt,
+        "y_N_plus_1_actuelle": factures_N_plus_1_actuelles,
+        "y_N_plus_1_optimisee": factures_N_plus_1_optimisees,
+        "title": f"Comparaison : {year} vs Projection {annee_N_plus_1} vs Optimisation {annee_N_plus_1}",
+        "xaxis_title": "Mois",
+        "yaxis_title": "Montant TTC (FCFA)"
+    }
+
+    economies_vs_projection = [r['economie_vs_projection'] for r in resultats_optimisation_N_plus_1_data]
+    economies_vs_projection_text = [f"{e/1e6:.1f}M" for e in economies_vs_projection]
+
+    graph_economies_vs_projection = {
+        "x": mois_labels_opt,
+        "y": economies_vs_projection,
+        "text": economies_vs_projection_text,
+        "title": f"Économies mensuelles en {annee_N_plus_1} avec puissance optimisée vs projection",
+        "xaxis_title": "Mois",
+        "yaxis_title": "Économie (FCFA)"
+    }
+
+    # Tarifs N+1 avec puissance optimisée
+    tarifs_N_plus_1_optimise = calculer_tarifs_profil(nouvelle_puissance, annee_N_plus_1)
+
+    # === TABLEAU DE SYNTHESE OPTIMISATION N+1 ===
+    df_optimisation_results = pd.DataFrame(resultats_optimisation_N_plus_1_data)
+    df_optimisation_results['Facture_2025'] = df_optimisation_results['facture_N']
+    df_optimisation_results['Facture_Optimisation_2026'] = df_optimisation_results['facture_N_plus_1_optimisee']
+
+    tableau_synthese_optimisation = synthese_module.generer_tableau_synthese_optimisation_2026(
+        df_year, df_optimisation_results, nouvelle_puissance, nom_client
+    )
+
+    # Convert DataFrame to dict for JSON response
+    tableau_synthese_optimisation_dict = None
+    if tableau_synthese_optimisation is not None:
+        tableau_synthese_optimisation_dict = tableau_synthese_optimisation.to_dict('records')
+
+    resultats_optimisation_N_plus_1 = {
+        "metriques_optimisation": metriques_optimisation_N_plus_1,
+        "graph_factures": graph_optimisation_factures,
+        "graph_economies": graph_economies_vs_projection,
+        "tableau_mensuel": resultats_optimisation_N_plus_1_data,
+        "tarifs_N_plus_1_optimise": tarifs_N_plus_1_optimise.dict(),
+        "tableau_synthese": tableau_synthese_optimisation_dict
+    }
+
+    # === TABLEAU DE SYNTHESE SECTION 1 (Optimisation année N) ===
+    df_simulation_results = pd.DataFrame(resultats_simulation_data)
+    df_simulation_results['Facture_Actuelle'] = df_simulation_results['facture_actuelle']
+    df_simulation_results['Facture_Simulee'] = df_simulation_results['facture_simulee']
+    df_simulation_results['Economie'] = df_simulation_results['economie']
+
+    tableau_synthese_optimise = synthese_module.generer_tableau_synthese_optimise(
+        df_year, df_simulation_results, nouvelle_puissance, nom_client
+    )
+
+    # Convert DataFrame to dict for JSON response
+    tableau_synthese_optimise_dict = None
+    if tableau_synthese_optimise is not None:
+        tableau_synthese_optimise_dict = tableau_synthese_optimise.to_dict('records')
+
+    # Add tableau_synthese to resultats_simulation
+    resultats_simulation["tableau_synthese"] = tableau_synthese_optimise_dict
+
+    return OptimisationSimulationResponse(
+        year=year,
+        annee_N_plus_1=annee_N_plus_1,
+        nouvelle_puissance=nouvelle_puissance,
+        type_optimise=type_optimise,
+        info_nouvelle_puissance=info_nouvelle_puissance,
+        tarifs_nouvelle_puissance=tarifs_nouvelle_puissance.dict(),
+        resultats_simulation=resultats_simulation,
+        resultats_projection=resultats_projection,
+        resultats_optimisation_N_plus_1=resultats_optimisation_N_plus_1
     )

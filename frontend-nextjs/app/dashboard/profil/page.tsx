@@ -279,13 +279,7 @@ export default function ProfilClientPage() {
                       Plage horaire applicable
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Tarif HC ({profil_energetique.annee})
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Tarif HP ({profil_energetique.annee})
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Prime Fixe ({profil_energetique.annee})
+                      Intervalle
                     </th>
                   </tr>
                 </thead>
@@ -303,18 +297,59 @@ export default function ProfilClientPage() {
                       {profil_energetique.tableau1.plage_horaire}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">
-                      {profil_energetique.tableau1.tarif_hc}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {profil_energetique.tableau1.tarif_hp}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {profil_energetique.tableau1.prime_fixe}
+                      {profil_energetique.tableau1.intervalle}
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
+
+            {/* Tableau des tarifs détaillé */}
+            {profil_energetique.tableau1.tableau_tarifs && profil_energetique.tableau1.tableau_tarifs.length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-md font-semibold text-gray-900 mb-3">
+                  Grille tarifaire ({profil_energetique.annee})
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          Temps de fonctionnement
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                          Heures Creuses (FCFA/kWh)
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                          Heures Pointe (FCFA/kWh)
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                          Prime Fixe (FCFA/kW)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {profil_energetique.tableau1.tableau_tarifs.map((row: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-900">
+                            {row.temps_fonctionnement}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.tarif_hc}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.tarif_hp}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                            {row.prime_fixe}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </Card>
 
           {/* Tableau 1bis: Projection N+1 (only if year == 2025) */}
@@ -337,13 +372,7 @@ export default function ProfilClientPage() {
                         Plage horaire applicable
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Tarif HC (2026)
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Tarif HP (2026)
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Prime Fixe (2026)
+                        Intervalle
                       </th>
                     </tr>
                   </thead>
@@ -361,18 +390,59 @@ export default function ProfilClientPage() {
                         {profil_energetique.tableau1bis.plage_horaire}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-900">
-                        {profil_energetique.tableau1bis.tarif_hc}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {profil_energetique.tableau1bis.tarif_hp}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {profil_energetique.tableau1bis.prime_fixe}
+                        {profil_energetique.tableau1bis.intervalle}
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
+
+              {/* Tableau des tarifs détaillé */}
+              {profil_energetique.tableau1bis.tableau_tarifs && profil_energetique.tableau1bis.tableau_tarifs.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="text-md font-semibold text-gray-900 mb-3">
+                    Grille tarifaire (2026)
+                  </h4>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-yellow-100">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                            Temps de fonctionnement
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                            Heures Creuses (FCFA/kWh)
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                            Heures Pointe (FCFA/kWh)
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                            Prime Fixe (FCFA/kW)
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {profil_energetique.tableau1bis.tableau_tarifs.map((row: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {row.temps_fonctionnement}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                              {row.tarif_hc}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                              {row.tarif_hp}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                              {row.prime_fixe}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </Card>
           )}
 
