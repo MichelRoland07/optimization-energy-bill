@@ -9,27 +9,28 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@hookform/resolvers": "^3.9.1",
+    "axios": "^1.7.9",
     "next": "^14.2.18",
+    "plotly.js": "^2.35.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "axios": "^1.7.9",
-    "plotly.js": "^2.35.2",
-    "react-plotly.js": "^2.6.0",
-    "zustand": "^5.0.2",
     "react-hook-form": "^7.54.2",
+    "react-plotly.js": "^2.6.0",
     "zod": "^3.24.1",
-    "@hookform/resolvers": "^3.9.1"
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/plotly.js": "^2.33.4",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
-    "@types/plotly.js": "^2.33.4",
-    "typescript": "^5.7.2",
+    "@types/react-plotly.js": "^2.6.4",
+    "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.18",
-    "tailwindcss": "^3.4.17",
     "postcss": "^8.4.49",
-    "autoprefixer": "^10.4.20"
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2"
   }
 }

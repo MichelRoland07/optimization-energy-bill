@@ -98,8 +98,8 @@ class TarifsProfilInfo(BaseModel):
 
 class ProfilClientResponse(BaseModel):
     """Response for client profile endpoint"""
-    # Administrative info
-    infos_administratives: Dict[str, str]
+    # Administrative info (contains annees_disponibles as list of int)
+    infos_administratives: Dict[str, Any]
 
     # Energetic profile summary (enriched with tariffs)
     profil_energetique: Dict[str, Any]

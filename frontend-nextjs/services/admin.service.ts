@@ -20,7 +20,8 @@ export const adminService = {
     userId: number,
     customPermissions?: Permissions
   ): Promise<{ message: string; otp_sent_to: string; user: UserSummary }> {
-    const body = customPermissions ? { permissions: customPermissions } : {};
+    // Always send permissions object (empty if not provided)
+    const body = { permissions: customPermissions || {} };
     const response = await api.post(`/api/auth/approve-request/${userId}`, body);
     return response.data;
   },

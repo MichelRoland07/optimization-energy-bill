@@ -5,16 +5,15 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import useAuthStore from '@/store/useAuthStore';
 
-export default function DashboardLayout({
+export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, logout, hasPermission, isAdmin } = useAuthStore();
+  const { user, logout, isAdmin } = useAuthStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -23,79 +22,18 @@ export default function DashboardLayout({
       setIsLoading(false);
       if (!user) {
         router.push('/login');
+      } else if (!isAdmin()) {
+        router.push('/dashboard');
       }
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [user, router]);
+  }, [user, router, isAdmin]);
 
   const handleLogout = () => {
     logout();
     router.push('/login');
   };
-
-  const menuItems = [
-    {
-      name: 'Accueil',
-      path: '/dashboard/accueil',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-        </svg>
-      ),
-      permission: null, // Always visible
-    },
-    {
-      name: 'Profil Client',
-      path: '/dashboard/profil',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-        </svg>
-      ),
-      permission: 'view_profil',
-    },
-    {
-      name: 'Reconstitution',
-      path: '/dashboard/reconstitution',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-      ),
-      permission: 'view_reconstitution',
-    },
-    {
-      name: 'Optimisation',
-      path: '/dashboard/optimisation',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-      ),
-      permission: 'view_optimisation',
-    },
-    {
-      name: 'Simulateur',
-      path: '/dashboard/simulateur',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-        </svg>
-      ),
-      permission: 'view_simulateur',
-    },
-    {
-      name: 'Documentation',
-      path: '/dashboard/documentation',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-        </svg>
-      ),
-      permission: null, // Always visible
-    },
-  ];
 
   const adminMenuItems = [
     {
@@ -118,11 +56,17 @@ export default function DashboardLayout({
     },
   ];
 
-  // Filter menu items based on permissions
-  const visibleMenuItems = menuItems.filter((item) => {
-    if (item.permission === null) return true;
-    return hasPermission(item.permission);
-  });
+  const dashboardMenuItems = [
+    {
+      name: 'Retour au Dashboard',
+      path: '/dashboard/accueil',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+      ),
+    },
+  ];
 
   if (isLoading || !user) {
     return (
@@ -147,19 +91,19 @@ export default function DashboardLayout({
         <div className="h-16 flex items-center justify-between px-6 border-b border-gray-200">
           <div>
             <h1 className="text-xl font-bold text-primary-600">SABC</h1>
-            <p className="text-xs text-gray-500">Optimisation</p>
+            <p className="text-xs text-gray-500">Administration</p>
           </div>
         </div>
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-4">
-          {/* Dashboard Menu */}
+          {/* Admin Menu */}
           <div className="mb-6">
             <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Dashboard
+              Administration
             </h3>
             <ul className="space-y-1">
-              {visibleMenuItems.map((item) => (
+              {adminMenuItems.map((item) => (
                 <li key={item.path}>
                   <Link
                     href={item.path}
@@ -177,31 +121,25 @@ export default function DashboardLayout({
             </ul>
           </div>
 
-          {/* Admin Menu */}
-          {isAdmin() && (
-            <div>
-              <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Administration
-              </h3>
-              <ul className="space-y-1">
-                {adminMenuItems.map((item) => (
-                  <li key={item.path}>
-                    <Link
-                      href={item.path}
-                      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        pathname === item.path
-                          ? 'bg-primary-50 text-primary-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      {item.icon}
-                      <span>{item.name}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {/* Dashboard Link */}
+          <div>
+            <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              Navigation
+            </h3>
+            <ul className="space-y-1">
+              {dashboardMenuItems.map((item) => (
+                <li key={item.path}>
+                  <Link
+                    href={item.path}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                  >
+                    {item.icon}
+                    <span>{item.name}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         </nav>
       </aside>
 
@@ -224,9 +162,7 @@ export default function DashboardLayout({
               <p className="text-sm font-medium text-gray-900">
                 {user.titre} {user.full_name}
               </p>
-              <p className="text-xs text-gray-500">
-                {user.role === 'admin' ? 'Administrateur' : user.poste}
-              </p>
+              <p className="text-xs text-gray-500">Administrateur</p>
             </div>
             <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center">
               <span className="text-primary-600 font-semibold">
