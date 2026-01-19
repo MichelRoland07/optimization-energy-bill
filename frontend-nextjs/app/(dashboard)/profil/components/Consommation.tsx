@@ -20,7 +20,7 @@ export default function Consommation({
       annee: number;
       consommation: number;
       variation?: number;
-    };
+    }[];
     graph2_hc_hp_facturation: {
       annees: number[];
       hc: number[];
@@ -57,7 +57,7 @@ export default function Consommation({
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Évolution de la consommation mensuelle
           </h3>
-          <Plot
+          <PlotComponent
             data={profil_consommation.graph1_evolution.series.map(
               (serie, idx) => {
                 const couleurs = [
@@ -171,7 +171,7 @@ export default function Consommation({
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Consommation (HC/HP) et Facturation
           </h3>
-          <Plot
+          <PlotComponent
             data={[
               {
                 x: profil_consommation.graph2_hc_hp_facturation.annees.map(
@@ -217,7 +217,7 @@ export default function Consommation({
             layout={{
               autosize: true,
               height: 450,
-              xaxis: { title: "Année" },
+              xaxis: { title: { text: "Année" } },
               yaxis: {
                 title: {
                   text: "Consommation (MWh)",

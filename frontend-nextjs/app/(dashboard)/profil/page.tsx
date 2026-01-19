@@ -25,9 +25,8 @@ import PaginatedTable from "./components/PaginationTable";
 import ProfilePage from "./components/ProfilePage";
 import Resume from "./components/Resume";
 import Consommation from "./components/Consommation";
-import Plot from "react-plotly.js";
 
-
+const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
 export default function ProfilClientPage() {
   const { hasPermission } = useAuthStore();
@@ -226,11 +225,16 @@ export default function ProfilClientPage() {
                 graph1_evolution: {
                   series: [],
                 },
-                tableau_variation_conso: {
-                  annee: 0,
-                  consommation: 0,
-                  variation: undefined,
+                tableau_variation_conso: [],
+                graph2_hc_hp_facturation: {
+                  annees: [],
+                  hc: [],
+                  hp: [],
+                  facturation: [],
                 },
+                tableau_variation_facturation: [],
+                tableau_prix_unitaire: [],
+                tableau_recapitulatif: [],
               }}
             />
           )}
@@ -514,7 +518,7 @@ export default function ProfilClientPage() {
                               .yaxis1_title,
                           titlefont: { color: "#059669" },
                           tickfont: { color: "#059669" },
-                        },
+                        } as any,
                         yaxis2: {
                           title:
                             graphiquesData.facturation_consommation
@@ -523,7 +527,7 @@ export default function ProfilClientPage() {
                           tickfont: { color: "#7C2D12" },
                           overlaying: "y",
                           side: "right",
-                        },
+                        } as any,
                         showlegend: true,
                         legend: { orientation: "h", y: -0.2 },
                       }}
