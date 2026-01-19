@@ -11,6 +11,7 @@ import useAuthStore from "@/store/useAuthStore";
 import dataService, {
   OptimisationInitResponse,
   OptimisationSimulationResponse,
+  TarifsInfo,
 } from "@/services/data.service";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
@@ -109,7 +110,7 @@ export default function OptimisationPage() {
 
   return (
     <div className="p-8">
-      <div className="mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -141,6 +142,14 @@ export default function OptimisationPage() {
             </div>
           )}
         </div>
+
+        {/* Projection Info */}
+        {initData && (
+          <Alert
+            type="info"
+            message={`🔮 La projection sera faite pour l'année ${initData.annee_N_plus_1}`}
+          />
+        )}
 
         {/* Alerts */}
         {error && (
@@ -576,18 +585,24 @@ export default function OptimisationPage() {
                           layout={{
                             autosize: true,
                             height: 400,
-                            title:
-                              simulationData.resultats_simulation.graph_factures
-                                .title,
+                            title: {
+                              text:
+                                simulationData.resultats_simulation.graph_factures
+                                  .title,
+                            },
                             xaxis: {
-                              title:
-                                simulationData.resultats_simulation
-                                  .graph_factures.xaxis_title,
+                              title: {
+                                text:
+                                  simulationData.resultats_simulation
+                                    .graph_factures.xaxis_title,
+                              },
                             },
                             yaxis: {
-                              title:
-                                simulationData.resultats_simulation
-                                  .graph_factures.yaxis_title,
+                              title: {
+                                text:
+                                  simulationData.resultats_simulation
+                                    .graph_factures.yaxis_title,
+                              },
                             },
                             hovermode: "x unified",
                             showlegend: true,

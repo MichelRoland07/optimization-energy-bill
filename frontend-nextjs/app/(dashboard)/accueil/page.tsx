@@ -7,31 +7,10 @@ import { Alert } from "@/components/ui/Alert";
 import useAuthStore from "@/store/useAuthStore";
 import useDataStore from "@/store/useDataStore";
 import axios from "axios";
-import { GitGraph } from "lucide-react";
 import Table from "./components/Table";
+import { UploadResponse } from "./components/acceuil_interface";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-interface ServiceInfo {
-  service_no: string;
-  nom_client: string;
-  region: string;
-  division: string;
-  agence: string;
-  puissance_souscrite: number;
-  puissance_max_atteinte: number;
-  nb_depassements: number;
-  penalites_cosphi_2025: number;
-  nb_lignes: number;
-}
-
-interface UploadResponse {
-  single_service: boolean;
-  service_no?: string;
-  nom_client?: string;
-  services?: ServiceInfo[];
-  data_ready: boolean;
-}
 
 export default function AccueilPage() {
   const { user, hasPermission } = useAuthStore();
