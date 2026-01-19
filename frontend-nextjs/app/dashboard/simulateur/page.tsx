@@ -1,96 +1,76 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 import useAuthStore from '@/store/useAuthStore';
-import axios from 'axios';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-interface SimulationResult {
-  type_tarif: string;
-  puissance_saisie: number;
-  temps_fonctionnement: number;
-  type_detecte: number;
-  plage_horaire: string;
-  prix_kwh: number;
-  cout_mensuel_ht: number;
-  cout_mensuel_ttc: number;
-  cout_annuel_ht: number;
-  cout_annuel_ttc: number;
-  details: {
-    part_fixe_mensuelle: number;
-    part_variable_mensuelle: number;
-    taxes_mensuelles: number;
-  };
-}
+import simulateurService, { TableauTarifsResponse, SimulationResponse } from '@/services/simulateur.service';
 
 export default function SimulateurPage() {
   const { hasPermission } = useAuthStore();
-  const [puissance, setPuissance] = useState<string>('');
-  const [tempsFonctionnement, setTempsFonctionnement] = useState<string>('');
-  const [consommationMensuelle, setConsommationMensuelle] = useState<string>('');
-  const [result, setResult] = useState<SimulationResult | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+
+  // State for tariffs table
+  const [selectedYear, setSelectedYear] = useState<number>(2025);
+  const [tarifsData, setTarifsData] = useState<TableauTarifsResponse | null>(null);
+  const [isTarifsLoading, setIsTarifsLoading] = useState(false);
+  const [tarifsError, setTarifsError] = useState('');
+
+  // State for simulation
+  const [puissance, setPuissance] = useState<number>(1500);
+  const [tempsFonctionnement, setTempsFonctionnement] = useState<number>(300);
+  const [simulationResult, setSimulationResult] = useState<SimulationResponse | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simulationError, setSimulationError] = useState('');
+
 
   const canView = hasPermission('view_simulateur');
 
-  const handleSimulate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setResult(null);
-
-    // Validation
-    if (!puissance || !tempsFonctionnement || !consommationMensuelle) {
-      setError('Veuillez remplir tous les champs');
-      return;
+  // Load tariffs table on mount and when year changes
+  useEffect(() => {
+    if (canView) {
+      loadTarifsTable();
     }
+  }, [canView, selectedYear]);
 
-    const puissanceNum = parseFloat(puissance);
-    const tempsNum = parseFloat(tempsFonctionnement);
-    const consoNum = parseFloat(consommationMensuelle);
-
-    if (puissanceNum <= 0 || tempsNum <= 0 || consoNum <= 0) {
-      setError('Les valeurs doivent être positives');
-      return;
-    }
-
-    setIsLoading(true);
+  const loadTarifsTable = async () => {
+    setIsTarifsLoading(true);
+    setTarifsError('');
 
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await axios.post<SimulationResult>(
-        `${API_BASE_URL}/api/simulateur/simuler`,
-        {
-          puissance_kva: puissanceNum,
-          temps_fonctionnement_heures: tempsNum,
-          consommation_mensuelle_kwh: consoNum,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      setResult(response.data);
+      const data = await simulateurService.getTableauTarifs(selectedYear);
+      setTarifsData(data);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erreur lors de la simulation');
+      setTarifsError(err.response?.data?.detail || 'Erreur lors du chargement de la table des tarifs');
     } finally {
-      setIsLoading(false);
+      setIsTarifsLoading(false);
     }
   };
 
-  const handleReset = () => {
-    setPuissance('');
-    setTempsFonctionnement('');
-    setConsommationMensuelle('');
-    setResult(null);
-    setError('');
+  const handleSimulate = async () => {
+    setSimulationError('');
+    setIsSimulating(true);
+
+    try {
+      const data = await simulateurService.simulate({
+        puissance,
+        temps_fonctionnement: tempsFonctionnement,
+        annee: selectedYear
+      });
+      setSimulationResult(data);
+    } catch (err: any) {
+      setSimulationError(err.response?.data?.detail || 'Erreur lors de la simulation');
+      setSimulationResult(null);
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  const formatNumber = (num: number, decimals: number = 0) => {
+    return num.toLocaleString('fr-FR', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
   };
 
   if (!canView) {
@@ -106,288 +86,254 @@ export default function SimulateurPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">
-            Simulateur de Tarifs
+            Simulateur de tarifs électriques
           </h1>
           <p className="mt-2 text-gray-600">
-            Estimez vos coûts selon différentes configurations
+            Cette page vous permet de consulter l'ensemble des tarifs électriques et de simuler
+            les tarifs applicables selon votre puissance souscrite et votre temps de fonctionnement.
           </p>
         </div>
 
-        {/* Alerts */}
-        {error && (
+        <div className="border-t border-gray-300 mb-8"></div>
+
+        {/* SECTION 1: Table complète des tarifs électriques */}
+        <div className="mb-12">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-6">
+            Table complète des tarifs électriques
+          </h2>
+
+          {/* Year selector */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Sélectionnez l'année de référence :
+            </label>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+            >
+              <option value={2027}>2027</option>
+              <option value={2026}>2026</option>
+              <option value={2025}>2025</option>
+              <option value={2024}>2024</option>
+              <option value={2023}>2023</option>
+            </select>
+          </div>
+
+          {/* Info box */}
           <Alert
-            type="error"
-            message={error}
-            onClose={() => setError('')}
+            type="info"
+            message={`Lecture du tableau :
+• Petits clients (Types 1-5, puissance <3000 kW) : utilisent les colonnes 0-200h, 201-400h, >400h
+• Gros clients (Types 6-12, puissance ≥3000 kW) : utilisent les colonnes 0-400h, >400h
+• Off Peak = Heures creuses (FCFA/kWh) | Peak = Heures pointe (FCFA/kWh) | PF = Prime Fixe (FCFA/kW)
+• Tarifs affichés pour l'année ${selectedYear} avec augmentation annuelle incluse`}
           />
-        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Input Form */}
-          <Card>
-            <h3 className="text-lg font-semibold text-gray-900 mb-6">
-              Paramètres de Simulation
-            </h3>
-
-            <form onSubmit={handleSimulate} className="space-y-6">
-              {/* Puissance */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Puissance Souscrite (kVA)
-                </label>
-                <input
-                  type="number"
-                  value={puissance}
-                  onChange={(e) => setPuissance(e.target.value)}
-                  step="0.01"
-                  min="0"
-                  placeholder="Ex: 36"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Puissance électrique souscrite auprès de votre fournisseur
-                </p>
+          {/* Tariffs table */}
+          <Card className="mt-6">
+            {isTarifsLoading ? (
+              <div className="flex justify-center items-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
               </div>
-
-              {/* Temps de fonctionnement */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Temps de Fonctionnement (heures/mois)
-                </label>
-                <input
-                  type="number"
-                  value={tempsFonctionnement}
-                  onChange={(e) => setTempsFonctionnement(e.target.value)}
-                  step="1"
-                  min="0"
-                  placeholder="Ex: 300"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Nombre d'heures d'utilisation par mois
-                </p>
+            ) : tarifsError ? (
+              <Alert type="error" message={tarifsError} />
+            ) : tarifsData ? (
+              <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      {tarifsData.colonnes.map((col, idx) => (
+                        <th
+                          key={idx}
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200"
+                        >
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {tarifsData.lignes.map((ligne, idx) => (
+                      <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        {tarifsData.colonnes.map((col, colIdx) => (
+                          <td
+                            key={colIdx}
+                            className="px-4 py-3 text-sm text-gray-900 border-r border-gray-200 whitespace-nowrap"
+                          >
+                            {ligne[col] !== undefined && ligne[col] !== '' ? String(ligne[col]) : '-'}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-
-              {/* Consommation */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Consommation Mensuelle (kWh)
-                </label>
-                <input
-                  type="number"
-                  value={consommationMensuelle}
-                  onChange={(e) => setConsommationMensuelle(e.target.value)}
-                  step="0.01"
-                  min="0"
-                  placeholder="Ex: 10800"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Consommation électrique mensuelle en kWh
-                </p>
-              </div>
-
-              {/* Buttons */}
-              <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="flex-1"
-                  isLoading={isLoading}
-                >
-                  {isLoading ? 'Simulation...' : 'Simuler'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={handleReset}
-                >
-                  Réinitialiser
-                </Button>
-              </div>
-            </form>
-
-            {/* Info Box */}
-            <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-start">
-                <svg className="h-5 w-5 text-blue-600 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div>
-                  <h4 className="text-sm font-medium text-blue-900 mb-1">Information</h4>
-                  <ul className="text-xs text-blue-800 space-y-1">
-                    <li>• Le type tarifaire est automatiquement détecté selon la puissance</li>
-                    <li>• La plage horaire dépend du temps de fonctionnement</li>
-                    <li>• Les prix sont basés sur les tarifs SABC en vigueur</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
+            ) : null}
           </Card>
+        </div>
 
-          {/* Results */}
-          {result && (
-            <Card className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-300">
-              <h3 className="text-lg font-semibold text-green-900 mb-6">
-                Résultats de la Simulation
-              </h3>
+        <div className="border-t border-gray-300 mb-8"></div>
 
-              <div className="space-y-4">
-                {/* Tariff Type */}
-                <div className="bg-white rounded-lg p-4">
-                  <p className="text-sm text-gray-600">Type Tarifaire Détecté</p>
-                  <p className="text-xl font-bold text-gray-900">{result.type_tarif}</p>
-                  <p className="text-xs text-gray-500 mt-1">Type {result.type_detecte}</p>
-                </div>
+        {/* SECTION 2: Simulateur interactif */}
+        <div className="mb-12">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-6">
+            Simulateur interactif
+          </h2>
 
-                {/* Time Range */}
-                <div className="bg-white rounded-lg p-4">
-                  <p className="text-sm text-gray-600">Plage Horaire</p>
-                  <p className="text-xl font-bold text-gray-900">{result.plage_horaire}</p>
-                  <p className="text-xs text-gray-500 mt-1">{result.temps_fonctionnement}h de fonctionnement/mois</p>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            {/* Puissance input */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Puissance souscrite (kW) :
+              </label>
+              <input
+                type="number"
+                value={puissance}
+                onChange={(e) => setPuissance(Number(e.target.value))}
+                min={1}
+                max={10000}
+                step={10}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+              />
+            </div>
 
-                {/* Price per kWh */}
-                <div className="bg-white rounded-lg p-4">
-                  <p className="text-sm text-gray-600">Prix du kWh</p>
-                  <p className="text-xl font-bold text-gray-900">
-                    {result.prix_kwh.toFixed(4)} €/kWh
-                  </p>
-                </div>
+            {/* Temps de fonctionnement input */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Temps de fonctionnement mensuel (heures) :
+              </label>
+              <input
+                type="number"
+                value={tempsFonctionnement}
+                onChange={(e) => setTempsFonctionnement(Number(e.target.value))}
+                min={1}
+                max={744}
+                step={10}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+              />
+            </div>
+          </div>
 
-                {/* Monthly Cost */}
-                <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-4 text-white">
-                  <p className="text-sm opacity-90">Coût Mensuel</p>
-                  <div className="flex items-baseline gap-3 mt-1">
-                    <p className="text-3xl font-bold">
-                      {result.cout_mensuel_ttc.toLocaleString('fr-FR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })} €
-                    </p>
-                    <p className="text-sm opacity-90">TTC</p>
-                  </div>
-                  <p className="text-xs opacity-75 mt-1">
-                    {result.cout_mensuel_ht.toLocaleString('fr-FR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })} € HT
-                  </p>
-                </div>
+          {/* Simulation button */}
+          <Button
+            onClick={handleSimulate}
+            variant="primary"
+            className="w-full"
+            isLoading={isSimulating}
+          >
+            CALCULER LES TARIFS
+          </Button>
 
-                {/* Annual Cost */}
-                <div className="bg-gradient-to-r from-purple-500 to-purple-600 rounded-lg p-4 text-white">
-                  <p className="text-sm opacity-90">Coût Annuel</p>
-                  <div className="flex items-baseline gap-3 mt-1">
-                    <p className="text-3xl font-bold">
-                      {result.cout_annuel_ttc.toLocaleString('fr-FR', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })} €
-                    </p>
-                    <p className="text-sm opacity-90">TTC</p>
-                  </div>
-                  <p className="text-xs opacity-75 mt-1">
-                    {result.cout_annuel_ht.toLocaleString('fr-FR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })} € HT
-                  </p>
-                </div>
-
-                {/* Breakdown */}
-                <div className="bg-white rounded-lg p-4">
-                  <p className="text-sm font-medium text-gray-900 mb-3">Détail Mensuel</p>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Part fixe</span>
-                      <span className="font-semibold text-gray-900">
-                        {result.details.part_fixe_mensuelle.toLocaleString('fr-FR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })} €
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Part variable</span>
-                      <span className="font-semibold text-gray-900">
-                        {result.details.part_variable_mensuelle.toLocaleString('fr-FR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })} €
-                      </span>
-                    </div>
-                    <div className="flex justify-between pt-2 border-t border-gray-200">
-                      <span className="text-gray-600">Taxes</span>
-                      <span className="font-semibold text-gray-900">
-                        {result.details.taxes_mensuelles.toLocaleString('fr-FR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })} €
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {!result && (
-            <Card className="bg-gray-50 flex items-center justify-center">
-              <div className="text-center py-12">
-                <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-gray-200 mb-4">
-                  <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Aucune simulation</h3>
-                <p className="text-sm text-gray-600">
-                  Remplissez le formulaire et cliquez sur "Simuler"
-                </p>
-              </div>
-            </Card>
+          {/* Simulation error */}
+          {simulationError && (
+            <div className="mt-4">
+              <Alert type="error" message={simulationError} onClose={() => setSimulationError('')} />
+            </div>
           )}
         </div>
 
-        {/* Tariff Reference Table */}
-        <Card className="mt-8">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Référence des Types Tarifaires
-          </h3>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Puissance (kVA)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Temps (h/mois)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                <tr><td className="px-6 py-4 text-sm">Type 1-3</td><td className="px-6 py-4 text-sm">≤ 12</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Petite puissance</td></tr>
-                <tr><td className="px-6 py-4 text-sm">Type 4-6</td><td className="px-6 py-4 text-sm">13-35</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Moyenne puissance</td></tr>
-                <tr><td className="px-6 py-4 text-sm">Type 7-9</td><td className="px-6 py-4 text-sm">36-250</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Haute puissance</td></tr>
-                <tr><td className="px-6 py-4 text-sm">Type 10-12</td><td className="px-6 py-4 text-sm">{'>'} 250</td><td className="px-6 py-4 text-sm">Toutes plages</td><td className="px-6 py-4 text-sm">Très haute puissance</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-4 text-xs text-gray-600">
-            <p><strong>Plages horaires :</strong></p>
-            <ul className="ml-4 mt-1 space-y-1">
-              <li>• 0-200h : Faible utilisation</li>
-              <li>• 201-400h : Utilisation moyenne</li>
-              <li>• {'>'} 400h : Forte utilisation</li>
-            </ul>
-          </div>
-        </Card>
+        {/* SECTION 3: Résultats de la simulation */}
+        {simulationResult && (
+          <>
+            <div className="border-t border-gray-300 mb-8"></div>
+            <div className="mb-12">
+              <h2 className="text-2xl font-semibold text-gray-900 mb-6">
+                Résultats de la simulation
+              </h2>
+
+              {/* Metrics cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <Card>
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">Type tarifaire</p>
+                    <p className="text-2xl font-bold text-gray-900">Type {simulationResult.type}</p>
+                  </div>
+                </Card>
+
+                <Card>
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">Catégorie</p>
+                    <p className="text-2xl font-bold text-gray-900">{simulationResult.categorie}</p>
+                  </div>
+                </Card>
+
+                <Card>
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">Plage horaire</p>
+                    <p className="text-2xl font-bold text-gray-900">{simulationResult.plage_horaire}</p>
+                  </div>
+                </Card>
+
+                <Card>
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">Intervalle de puissance</p>
+                    <p className="text-xl font-bold text-gray-900">
+                      [{simulationResult.intervalle_min}, {simulationResult.intervalle_max}[ kW
+                    </p>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Tarifs applicables */}
+              <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                Tarifs applicables
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                {/* Tarif HC */}
+                <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300">
+                  <div className="text-center">
+                    <h4 className="text-sm font-semibold text-blue-900 mb-2">
+                      Tarif Heures Creuses
+                    </h4>
+                    <h2 className="text-3xl font-bold text-blue-900">
+                      {formatNumber(simulationResult.tarif_off_peak, 3)}
+                    </h2>
+                    <p className="text-sm text-blue-700 mt-1">FCFA/kWh</p>
+                  </div>
+                </Card>
+
+                {/* Tarif HP */}
+                <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-2 border-orange-300">
+                  <div className="text-center">
+                    <h4 className="text-sm font-semibold text-orange-900 mb-2">
+                      Tarif Heures Pointe
+                    </h4>
+                    <h2 className="text-3xl font-bold text-orange-900">
+                      {formatNumber(simulationResult.tarif_peak, 3)}
+                    </h2>
+                    <p className="text-sm text-orange-700 mt-1">FCFA/kWh</p>
+                  </div>
+                </Card>
+
+                {/* Prime Fixe */}
+                <Card className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-300">
+                  <div className="text-center">
+                    <h4 className="text-sm font-semibold text-green-900 mb-2">
+                      Prime Fixe
+                    </h4>
+                    <h2 className="text-3xl font-bold text-green-900">
+                      {formatNumber(simulationResult.prime_fixe, 2)}
+                    </h2>
+                    <p className="text-sm text-green-700 mt-1">FCFA/kW</p>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Coefficient info */}
+              <Alert
+                type="info"
+                message={`Coefficient d'augmentation appliqué : ${simulationResult.coefficient.toFixed(4)} (année de référence : 2023)`}
+              />
+
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

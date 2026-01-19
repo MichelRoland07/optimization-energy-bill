@@ -5,19 +5,71 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 import useAuthStore from '@/store/useAuthStore';
+import useDataStore from '@/store/useDataStore';
 import axios from 'axios';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+interface ServiceInfo {
+  service_no: string;
+  nom_client: string;
+  region: string;
+  division: string;
+  agence: string;
+  puissance_souscrite: number;
+  puissance_max_atteinte: number;
+  nb_depassements: number;
+  penalites_cosphi_2025: number;
+  nb_lignes: number;
+}
+
+interface UploadResponse {
+  single_service: boolean;
+  service_no?: string;
+  nom_client?: string;
+  services?: ServiceInfo[];
+  data_ready: boolean;
+}
+
 export default function AccueilPage() {
   const { user, hasPermission } = useAuthStore();
+  const {
+    currentService,
+    isMultiService,
+    availableServices,
+    setCurrentService,
+    setDataReady,
+    setMultiService,
+    setAvailableServices,
+    clearData
+  } = useDataStore();
+
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [error, setError] = useState('');
   const [uploadedFileName, setUploadedFileName] = useState('');
+  const [uploadResponse, setUploadResponse] = useState<UploadResponse | null>(null);
+  const [selectedService, setSelectedService] = useState<string>('');
+  const [isSelectingService, setIsSelectingService] = useState(false);
+  const [showColumns, setShowColumns] = useState(false);
 
   const canUpload = hasPermission('upload_data');
+
+  // Required columns
+  const requiredColumns = [
+    'READING_DATE',
+    'SERVICE_NO',
+    'CUST_NAME',
+    'REGION',
+    'SUBSCRIPTION_LOAD',
+    'MV_CONSUMPTION',
+    'OFF_PEAK_CONSUMPTION',
+    'PEAK_CONSUMPTION',
+    'AMOUNT_WITHOUT_TAX',
+    'TVA',
+    'AMOUNT_WITH_TAX'
+  ];
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -47,13 +99,14 @@ export default function AccueilPage() {
     setIsUploading(true);
     setError('');
     setUploadSuccess(false);
+    setUploadResponse(null);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
 
       const token = localStorage.getItem('access_token');
-      const response = await axios.post(
+      const response = await axios.post<UploadResponse>(
         `${API_BASE_URL}/api/data/upload`,
         formData,
         {
@@ -66,13 +119,30 @@ export default function AccueilPage() {
 
       setUploadSuccess(true);
       setUploadedFileName(file.name);
+      setUploadResponse(response.data);
       setFile(null);
 
       // Reset file input
       const fileInput = document.getElementById('file-upload') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
 
-      setTimeout(() => setUploadSuccess(false), 5000);
+      // Store service data in global store
+      if (response.data.single_service && response.data.service_no && response.data.nom_client) {
+        // Single service: store immediately
+        setCurrentService({
+          service_no: response.data.service_no,
+          nom_client: response.data.nom_client
+        });
+        setDataReady(true);
+        setMultiService(false);
+        setAvailableServices([]);
+        setTimeout(() => setUploadSuccess(false), 5000);
+      } else if (response.data.services) {
+        // Multi-service: store services list and wait for selection
+        setMultiService(true);
+        setAvailableServices(response.data.services);
+        setDataReady(false);
+      }
     } catch (err: any) {
       setError(
         err.response?.data?.detail ||
@@ -80,6 +150,67 @@ export default function AccueilPage() {
       );
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleServiceSelection = async () => {
+    if (!selectedService) {
+      setError('Veuillez sélectionner un service');
+      return;
+    }
+
+    setIsSelectingService(true);
+    setError('');
+
+    try {
+      const token = localStorage.getItem('access_token');
+      await axios.post(
+        `${API_BASE_URL}/api/data/select-service`,
+        { service_no: selectedService },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      // Update upload response to mark data as ready
+      const selectedServiceInfo = availableServices.find(
+        s => s.service_no === selectedService
+      );
+
+      if (uploadResponse) {
+        setUploadResponse({
+          ...uploadResponse,
+          data_ready: true,
+          service_no: selectedService,
+          nom_client: selectedServiceInfo?.nom_client || '',
+        });
+      }
+
+      // Store selected service in global store
+      if (selectedServiceInfo) {
+        setCurrentService({
+          service_no: selectedServiceInfo.service_no,
+          nom_client: selectedServiceInfo.nom_client,
+          region: selectedServiceInfo.region,
+          division: selectedServiceInfo.division,
+          agence: selectedServiceInfo.agence,
+          puissance_souscrite: selectedServiceInfo.puissance_souscrite
+        });
+        setDataReady(true);
+      }
+
+      setUploadSuccess(true);
+      setTimeout(() => setUploadSuccess(false), 5000);
+    } catch (err: any) {
+      setError(
+        err.response?.data?.detail ||
+        'Erreur lors de la sélection du service'
+      );
+    } finally {
+      setIsSelectingService(false);
     }
   };
 
@@ -116,6 +247,108 @@ export default function AccueilPage() {
             Téléchargez vos données de consommation pour commencer l'analyse
           </p>
         </div>
+
+        {/* Current Service Info */}
+        {currentService && (
+          <Card className="mb-6 bg-green-50 border-green-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-3 flex-1">
+                <svg className="h-6 w-6 text-green-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <h3 className="text-sm font-semibold text-green-900 mb-2">Service actuellement sélectionné</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <p className="text-green-700">N° Service</p>
+                      <p className="text-green-900 font-semibold">{currentService.service_no}</p>
+                    </div>
+                    <div>
+                      <p className="text-green-700">Client</p>
+                      <p className="text-green-900 font-semibold">{currentService.nom_client}</p>
+                    </div>
+                    {currentService.region && (
+                      <div>
+                        <p className="text-green-700">Région</p>
+                        <p className="text-green-900">{currentService.region}</p>
+                      </div>
+                    )}
+                    {currentService.puissance_souscrite && (
+                      <div>
+                        <p className="text-green-700">Puissance</p>
+                        <p className="text-green-900">{currentService.puissance_souscrite.toFixed(0)} kW</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  clearData();
+                  setUploadResponse(null);
+                  setSelectedService('');
+                }}
+                className="ml-4"
+              >
+                Charger un autre fichier
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Features Card */}
+        <Card className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">
+            Fonctionnalités de l'application
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+                <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Profil énergétique</h3>
+                <p className="text-sm text-gray-600">Analyse détaillée de votre consommation</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="h-8 w-8 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0">
+                <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Optimisation tarifaire</h3>
+                <p className="text-sm text-gray-600">Recommandations pour réduire vos coûts</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="h-8 w-8 rounded-lg bg-purple-600 flex items-center justify-center flex-shrink-0">
+                <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Simulateur de tarifs</h3>
+                <p className="text-sm text-gray-600">Testez différentes configurations</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="h-8 w-8 rounded-lg bg-orange-600 flex items-center justify-center flex-shrink-0">
+                <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Reconstitution factures</h3>
+                <p className="text-sm text-gray-600">Vérification et analyse des factures</p>
+              </div>
+            </div>
+          </div>
+        </Card>
 
         {/* Alerts */}
         {error && (
@@ -240,24 +473,213 @@ export default function AccueilPage() {
           )}
         </Card>
 
-        {/* Info Card */}
+        {/* Required Columns - Expandable */}
         <Card className="mt-6 bg-blue-50 border-blue-200">
-          <div className="flex items-start">
-            <svg className="h-6 w-6 text-blue-600 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-              <h3 className="text-sm font-medium text-blue-900 mb-2">Instructions</h3>
-              <ul className="text-sm text-blue-800 space-y-1">
-                <li>• Le fichier Excel doit contenir les colonnes: READING_DATE, CONSUMPTION_KWH, PUISSANCE_SOUSCRITE</li>
-                <li>• Les dates doivent être au format DD/MM/YYYY</li>
-                <li>• La consommation doit être en kWh</li>
-                <li>• La puissance souscrite en kVA</li>
-                <li>• Après le téléchargement, vous pourrez accéder aux analyses dans les autres sections</li>
-              </ul>
+          <button
+            onClick={() => setShowColumns(!showColumns)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <div className="flex items-start flex-1">
+              <svg className="h-6 w-6 text-blue-600 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <h3 className="text-sm font-medium text-blue-900 mb-1">Colonnes requises dans votre fichier Excel</h3>
+                <p className="text-xs text-blue-700">Cliquez pour voir la liste des colonnes</p>
+              </div>
             </div>
-          </div>
+            <svg
+              className={`h-5 w-5 text-blue-600 transition-transform ${showColumns ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showColumns && (
+            <div className="mt-4 pt-4 border-t border-blue-200">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {requiredColumns.map((col, index) => (
+                  <div key={index} className="flex items-center gap-2 text-sm text-blue-800">
+                    <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span className="font-mono text-xs">{col}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 pt-4 border-t border-blue-200">
+                <h4 className="text-sm font-medium text-blue-900 mb-2">Instructions importantes:</h4>
+                <ul className="text-xs text-blue-800 space-y-1">
+                  <li>• Les dates doivent être au format DD/MM/YYYY</li>
+                  <li>• La consommation doit être en kWh</li>
+                  <li>• La puissance souscrite en kW</li>
+                  <li>• Toutes les colonnes ci-dessus doivent être présentes</li>
+                </ul>
+              </div>
+            </div>
+          )}
         </Card>
+
+        {/* Upload Statistics - Show after successful upload */}
+        {uploadSuccess && uploadResponse && uploadResponse.single_service && (
+          <Card className="mt-6 bg-green-50 border-green-200">
+            <div className="flex items-start">
+              <svg className="h-6 w-6 text-green-600 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-green-900 mb-2">Données chargées avec succès</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-green-700">Service: <span className="font-semibold">{uploadResponse.service_no}</span></p>
+                  </div>
+                  <div>
+                    <p className="text-green-700">Client: <span className="font-semibold">{uploadResponse.nom_client}</span></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Multi-Service Dashboard */}
+        {isMultiService && availableServices.length > 0 && (
+          <Card className="mt-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              📊 Vue sur les entreprises enregistrées
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Votre fichier contient {availableServices.length} services différents.
+            </p>
+
+            {/* Dashboard Table */}
+            <div className="overflow-x-auto mb-6">
+              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                      N° Service
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                      Nom Client
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                      Région
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                      Division
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                      Agence
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                      Puissance Souscrite (kW)
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                      Puissance Max Atteinte (kW)
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                      Nb Dépassements
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                      Pénalités Cos Phi 2025 (FCFA)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {availableServices.map((service, index) => (
+                    <tr
+                      key={service.service_no}
+                      className={`${
+                        index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                      } ${
+                        selectedService === service.service_no ? 'ring-2 ring-primary-500' : ''
+                      } cursor-pointer hover:bg-blue-50`}
+                      onClick={() => setSelectedService(service.service_no)}
+                    >
+                      <td className="px-3 py-2 text-sm font-medium text-gray-900 border-r border-gray-200">
+                        {service.service_no}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-700 border-r border-gray-200">
+                        {service.nom_client}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-700 border-r border-gray-200">
+                        {service.region}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-700 border-r border-gray-200">
+                        {service.division}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-700 border-r border-gray-200">
+                        {service.agence}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-700 border-r border-gray-200 text-right">
+                        {service.puissance_souscrite.toFixed(0)}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-700 border-r border-gray-200 text-right">
+                        {service.puissance_max_atteinte.toFixed(0)}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-700 border-r border-gray-200 text-center">
+                        {service.nb_depassements}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-700 text-right">
+                        {service.penalites_cosphi_2025.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Service Selection Section */}
+            <div className="pt-4 border-t border-gray-200">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                🎯 Choisissez l'entreprise à analyser :
+              </label>
+              <div className="flex gap-3">
+                <select
+                  value={selectedService}
+                  onChange={(e) => setSelectedService(e.target.value)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-gray-900"
+                >
+                  <option value="">-- Choisir un service --</option>
+                  {availableServices.map((service) => (
+                    <option key={service.service_no} value={service.service_no}>
+                      {service.service_no} - {service.nom_client} - {service.region}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  variant="primary"
+                  onClick={handleServiceSelection}
+                  isLoading={isSelectingService}
+                  disabled={!selectedService}
+                >
+                  🔄 Charger cette entreprise
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Show success message after service selection */}
+        {uploadResponse && uploadResponse.data_ready && !uploadResponse.single_service && (
+          <Card className="mt-6 bg-green-50 border-green-200">
+            <div className="flex items-start">
+              <svg className="h-6 w-6 text-green-600 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <h3 className="text-sm font-medium text-green-900 mb-2">Service sélectionné avec succès</h3>
+                <p className="text-sm text-green-700">
+                  Vous pouvez maintenant accéder aux analyses pour le service <span className="font-semibold">{uploadResponse.service_no}</span> - {uploadResponse.nom_client}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Quick Access */}
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">

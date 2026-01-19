@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Card } from '@/components/ui/Card';
 import { Alert } from '@/components/ui/Alert';
+import { ServiceHeader } from '@/components/ui/ServiceHeader';
 import useAuthStore from '@/store/useAuthStore';
+import useDataStore from '@/store/useDataStore';
 import dataService from '@/services/data.service';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
@@ -187,6 +189,9 @@ export default function ProfilClientPage() {
   return (
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
+        {/* Service Header */}
+        <ServiceHeader />
+
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">

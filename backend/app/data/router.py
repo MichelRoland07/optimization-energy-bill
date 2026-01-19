@@ -184,14 +184,17 @@ async def upload_file(
     # Calculate enriched data
     df_enriched = calculs.appliquer_tous_calculs(df)
 
-    # Store in session
-    session_manager.store_user_data(current_user.id, df_enriched)
+    # Store in session (raw = full data with all services, processed = filtered data for selected service)
+    print(f"DEBUG upload: user_id={current_user.id}, storing data with shape={df_enriched.shape}")
+    session_manager.store_raw_data(current_user.id, df_enriched)
+    print(f"DEBUG upload: data stored, has_data={session_manager.has_data(current_user.id)}")
 
     # Detect services
     services = df_enriched['SERVICE_NO'].unique()
+    print(f"DEBUG upload: detected {len(services)} services: {services.tolist()}")
 
     if len(services) == 1:
-        # Single service
+        # Single service - store as processed data as well
         service_no = services[0]  # Keep original type
         df_service = df_enriched[df_enriched['SERVICE_NO'] == service_no]
 
@@ -200,6 +203,10 @@ async def upload_file(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Aucune donnée trouvée pour le service {service_no}"
             )
+
+        # Store as processed data too (for API endpoints that use get_processed_data)
+        session_manager.store_processed_data(current_user.id, df_service, str(service_no))
+        print(f"DEBUG upload: single service - stored as processed data")
 
         first_row = df_service.iloc[0]
 
@@ -216,11 +223,32 @@ async def upload_file(
             df_service = df_enriched[df_enriched['SERVICE_NO'] == service_no]
             if not df_service.empty:
                 first_row = df_service.iloc[0]
+
+                # Filter for 2025 data to calculate statistics
+                df_2025 = df_service[df_service['READING_DATE'].dt.year == 2025].copy()
+
+                if not df_2025.empty:
+                    puissance_souscrite = float(df_2025['SUBSCRIPTION_LOAD'].iloc[0])
+                    puissance_max_atteinte = float(df_2025['PUISSANCE_ATTEINTE'].max())
+                    nb_depassements = int((df_2025['PUISSANCE_ATTEINTE'] > puissance_souscrite).sum())
+                    penalites_cosphi = float(df_2025['MAUVAIS_COS'].sum()) if 'MAUVAIS_COS' in df_2025.columns else 0.0
+                else:
+                    # No 2025 data, use defaults
+                    puissance_souscrite = float(first_row['SUBSCRIPTION_LOAD'])
+                    puissance_max_atteinte = 0.0
+                    nb_depassements = 0
+                    penalites_cosphi = 0.0
+
                 service_list.append(ServiceInfo(
                     service_no=str(service_no),
                     nom_client=str(first_row['CUST_NAME']),
                     region=str(first_row['REGION']),
-                    puissance=float(first_row['SUBSCRIPTION_LOAD']),
+                    division=str(first_row['DIVISION']) if 'DIVISION' in first_row else 'N/A',
+                    agence=str(first_row['AGENCE']) if 'AGENCE' in first_row else 'N/A',
+                    puissance_souscrite=puissance_souscrite,
+                    puissance_max_atteinte=puissance_max_atteinte,
+                    nb_depassements=nb_depassements,
+                    penalites_cosphi_2025=penalites_cosphi,
                     nb_lignes=len(df_service)
                 ))
 
@@ -239,8 +267,13 @@ async def select_service(
     """
     Select a specific service from multi-service data
     """
-    # Get user's data
-    df = session_manager.get_user_data(current_user.id)
+    # Get user's RAW data (contains all services)
+    print(f"DEBUG select-service: user_id={current_user.id}, selecting service_no={selection.service_no}")
+    df = session_manager.get_raw_data(current_user.id)
+    print(f"DEBUG select-service: df is None: {df is None}")
+    if df is not None:
+        print(f"DEBUG select-service: df.shape={df.shape}, services={df['SERVICE_NO'].unique().tolist()}")
+
     if df is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -248,7 +281,27 @@ async def select_service(
         )
 
     # Filter for selected service
-    df_service = df[df['SERVICE_NO'] == selection.service_no].copy()
+    # Convert selection.service_no to match DataFrame type
+    print(f"DEBUG select-service: selection.service_no={selection.service_no}, type={type(selection.service_no)}")
+    print(f"DEBUG select-service: df SERVICE_NO dtype={df['SERVICE_NO'].dtype}")
+    print(f"DEBUG select-service: Available services: {df['SERVICE_NO'].unique().tolist()}")
+
+    # Try both string and int comparisons to ensure we find the service
+    service_no_to_find = selection.service_no
+
+    # First, try with the original string value
+    df_service = df[df['SERVICE_NO'].astype(str) == str(selection.service_no)].copy()
+
+    # If empty and DataFrame has int type, try converting to int
+    if df_service.empty and df['SERVICE_NO'].dtype in ['int64', 'int32', 'Int64']:
+        try:
+            service_no_to_find = int(selection.service_no)
+            print(f"DEBUG select-service: trying with int: {service_no_to_find}")
+            df_service = df[df['SERVICE_NO'] == service_no_to_find].copy()
+        except ValueError:
+            print(f"DEBUG select-service: could not convert to int")
+
+    print(f"DEBUG select-service: df_service.shape={df_service.shape}, empty={df_service.empty}")
 
     if df_service.empty:
         raise HTTPException(
@@ -256,8 +309,10 @@ async def select_service(
             detail=f"Service {selection.service_no} non trouvé dans les données"
         )
 
-    # Store filtered data
-    session_manager.store_user_data(current_user.id, df_service)
+    # Store filtered data for this service (processed_data)
+    # Keep raw_data intact for future service selections
+    session_manager.store_processed_data(current_user.id, df_service, selection.service_no)
+    print(f"DEBUG select-service: stored processed data for service {selection.service_no}")
 
     return ServiceSelectionResponse(
         data_ready=True,

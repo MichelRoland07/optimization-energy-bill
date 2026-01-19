@@ -10,7 +10,12 @@ class ServiceInfo(BaseModel):
     service_no: str
     nom_client: str
     region: str
-    puissance: float
+    division: str
+    agence: str
+    puissance_souscrite: float
+    puissance_max_atteinte: float
+    nb_depassements: int
+    penalites_cosphi_2025: float
     nb_lignes: int
 
 
