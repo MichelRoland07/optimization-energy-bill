@@ -36,7 +36,7 @@ export default function PendingRequestsPage() {
     }
 
     if (user.role !== 'admin') {
-      router.push('/dashboard');
+      router.push('/acceuil');
       return;
     }
 

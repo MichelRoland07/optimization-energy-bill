@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import useAuthStore from '@/store/useAuthStore';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import useAuthStore from "@/store/useAuthStore";
 
 export default function Home() {
   const router = useRouter();
@@ -22,13 +22,13 @@ export default function Home() {
 
     // Redirect based on authentication status
     if (user) {
-      if (user.role === 'admin') {
-        router.push('/admin/pending-requests');
+      if (user.role === "admin") {
+        router.push("/admin/pending-requests");
       } else {
-        router.push('/dashboard');
+        router.push("/acceuil");
       }
     } else {
-      router.push('/login');
+      router.push("/login");
     }
   }, [user, router, isReady]);
 

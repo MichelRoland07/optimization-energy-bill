@@ -47,7 +47,7 @@ export default function UsersManagementPage() {
     }
 
     if (!isAdmin()) {
-      router.push('/dashboard');
+      router.push('/acceuil');
       return;
     }
 

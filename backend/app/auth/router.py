@@ -249,10 +249,11 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     # Verify password
     if not user.password_hash or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Email ou mot de passe incorrect",
             headers={"WWW-Authenticate": "Bearer"},
         )
+        
 
     # Create access token
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
