@@ -16,7 +16,7 @@ python-dotenv==1.0.0
 
 # Email
 fastapi-mail==1.4.1
-aiosmtplib==3.0.1
+aiosmtplib==2.0.2
 pydantic[email]==2.10.0
 
 # Data processing (use existing)

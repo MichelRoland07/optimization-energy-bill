@@ -21,7 +21,7 @@ export function middleware(request: NextRequest) {
 
   // If route is public and user has token, redirect to dashboard
   if (isPublicRoute && token) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    return NextResponse.redirect(new URL('/acceuil', request.url));
   }
 
   // If route is not public and no token, redirect to login
