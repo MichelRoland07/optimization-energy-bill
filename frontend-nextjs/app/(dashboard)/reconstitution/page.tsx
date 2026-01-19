@@ -29,18 +29,8 @@ export default function ReconstitutionPage() {
     setError('');
 
     try {
-      // Use first available year if no year provided
-      let yearToUse = year;
-
-      if (!yearToUse && reconstitutionData) {
-        yearToUse = reconstitutionData.annees_disponibles[0];
-      } else if (!yearToUse) {
-        // Try to get initial data to find available years
-        const initialData = await dataService.getReconstitution(new Date().getFullYear());
-        yearToUse = initialData.annees_disponibles[0];
-      }
-
-      const data = await dataService.getReconstitution(yearToUse!);
+      // If year is provided, use it. Otherwise, backend will use the most recent year
+      const data = await dataService.getReconstitution(year);
       setReconstitutionData(data);
 
       if (!selectedYear) {
@@ -178,6 +168,14 @@ export default function ReconstitutionPage() {
                       minimumFractionDigits: 0,
                       maximumFractionDigits: 0,
                     })} FCFA
+                  </p>
+                  <p className={`text-sm font-semibold mt-1 ${
+                    reconstitutionData.metriques_globales.gap_total >= 0
+                      ? 'text-orange-700'
+                      : 'text-red-700'
+                  }`}>
+                    {reconstitutionData.metriques_globales.gap_pct >= 0 ? '+' : ''}
+                    {reconstitutionData.metriques_globales.gap_pct.toFixed(2)}%
                   </p>
                 </div>
               </Card>
@@ -346,6 +344,8 @@ export default function ReconstitutionPage() {
                     y: reconstitutionData.graph_ecarts.y,
                     type: 'bar',
                     name: 'Écart',
+                    text: reconstitutionData.graph_ecarts.text,
+                    textposition: 'outside',
                     marker: {
                       color: reconstitutionData.graph_ecarts.y.map(val => val >= 0 ? '#10B981' : '#EF4444')
                     }
@@ -386,6 +386,51 @@ export default function ReconstitutionPage() {
                 className="w-full p-3 border border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none bg-white"
                 rows={4}
                 placeholder="Saisir votre analyse des écarts mensuels..."
+              />
+            </Card>
+
+            {/* Graph 3: Décomposition de la facture recalculée (stacked bars) */}
+            <Card className="mb-8 mt-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                {reconstitutionData.graph_decomposition.title}
+              </h3>
+              <Plot
+                data={[
+                  {
+                    x: reconstitutionData.graph_decomposition.x,
+                    y: reconstitutionData.graph_decomposition.y_hc,
+                    type: 'bar',
+                    name: 'Heures creuses',
+                    marker: { color: '#2ca02c' }
+                  },
+                  {
+                    x: reconstitutionData.graph_decomposition.x,
+                    y: reconstitutionData.graph_decomposition.y_hp,
+                    type: 'bar',
+                    name: 'Heures pointe',
+                    marker: { color: '#ff7f0e' }
+                  },
+                  {
+                    x: reconstitutionData.graph_decomposition.x,
+                    y: reconstitutionData.graph_decomposition.y_prime,
+                    type: 'bar',
+                    name: 'Prime fixe',
+                    marker: { color: '#9467bd' }
+                  }
+                ]}
+                layout={{
+                  autosize: true,
+                  height: 450,
+                  xaxis: { title: reconstitutionData.graph_decomposition.xaxis_title },
+                  yaxis: { title: reconstitutionData.graph_decomposition.yaxis_title },
+                  barmode: 'stack',
+                  showlegend: true,
+                  legend: { orientation: 'h', y: -0.2 },
+                  hovermode: 'x unified'
+                }}
+                useResizeHandler
+                style={{ width: '100%', height: '100%' }}
+                config={{ responsive: true }}
               />
             </Card>
           </>
