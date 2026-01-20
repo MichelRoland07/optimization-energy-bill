@@ -586,22 +586,19 @@ export default function OptimisationPage() {
                             autosize: true,
                             height: 400,
                             title: {
-                              text:
-                                simulationData.resultats_simulation.graph_factures
-                                  .title,
+                              text: simulationData.resultats_simulation
+                                .graph_factures.title,
                             },
                             xaxis: {
                               title: {
-                                text:
-                                  simulationData.resultats_simulation
-                                    .graph_factures.xaxis_title,
+                                text: simulationData.resultats_simulation
+                                  .graph_factures.xaxis_title,
                               },
                             },
                             yaxis: {
                               title: {
-                                text:
-                                  simulationData.resultats_simulation
-                                    .graph_factures.yaxis_title,
+                                text: simulationData.resultats_simulation
+                                  .graph_factures.yaxis_title,
                               },
                             },
                             hovermode: "x unified",
@@ -862,18 +859,21 @@ export default function OptimisationPage() {
                             layout={{
                               autosize: true,
                               height: 400,
-                              title:
-                                simulationData.resultats_projection
+                              title: {
+                                text: simulationData.resultats_projection
                                   .graph_factures.title,
+                              },
                               xaxis: {
-                                title:
-                                  simulationData.resultats_projection
+                                title: {
+                                  text: simulationData.resultats_projection
                                     .graph_factures.xaxis_title,
+                                },
                               },
                               yaxis: {
-                                title:
-                                  simulationData.resultats_projection
+                                title: {
+                                  text: simulationData.resultats_projection
                                     .graph_factures.yaxis_title,
+                                },
                               },
                               hovermode: "x unified",
                               showlegend: true,
@@ -1209,18 +1209,24 @@ export default function OptimisationPage() {
                             layout={{
                               autosize: true,
                               height: 400,
-                              title:
-                                simulationData.resultats_optimisation_N_plus_1
+                              title: {
+                                text: simulationData
+                                  .resultats_optimisation_N_plus_1
                                   .graph_factures.title,
+                              },
                               xaxis: {
-                                title:
-                                  simulationData.resultats_optimisation_N_plus_1
+                                title: {
+                                  text: simulationData
+                                    .resultats_optimisation_N_plus_1
                                     .graph_factures.xaxis_title,
+                                },
                               },
                               yaxis: {
-                                title:
-                                  simulationData.resultats_optimisation_N_plus_1
+                                title: {
+                                  text: simulationData
+                                    .resultats_optimisation_N_plus_1
                                     .graph_factures.yaxis_title,
+                                },
                               },
                               hovermode: "x unified",
                               showlegend: true,

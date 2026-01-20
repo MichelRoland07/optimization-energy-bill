@@ -9,6 +9,7 @@ import useDataStore from "@/store/useDataStore";
 import axios from "axios";
 import Table from "./components/Table";
 import { UploadResponse } from "./components/acceuil_interface";
+import { CloudBackup } from "lucide-react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -319,31 +320,11 @@ export default function AccueilPage() {
           <Alert type="error" message={error} onClose={() => setError("")} />
         )}
 
-        {uploadSuccess && (
-          <Alert
-            type="success"
-            message={`Fichier "${uploadedFileName}" téléchargé avec succès !`}
-            onClose={() => setUploadSuccess(false)}
-          />
-        )}
-
         {/* Upload Card */}
         <Card>
           <div className="text-center">
             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-primary-100 mb-4">
-              <svg
-                className="h-8 w-8 text-primary-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                />
-              </svg>
+              <CloudBackup className="h-8 w-8 text-emerald-600" />
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               Télécharger les données
@@ -388,8 +369,8 @@ export default function AccueilPage() {
             onDrop={handleDrop}
             className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
               file
-                ? "border-primary-400 bg-primary-50"
-                : "border-gray-300 hover:border-primary-400"
+                ? "border-green-400 bg-green-50"
+                : "border-gray-300 hover:border-green-400"
             } ${!canUpload ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
           >
             <input
@@ -403,9 +384,9 @@ export default function AccueilPage() {
 
             {file ? (
               <div>
-                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-primary-100 mb-4">
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-emerald-100 mb-4">
                   <svg
-                    className="h-6 w-6 text-primary-600"
+                    className="h-6 w-6 text-emerald-600"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -458,7 +439,7 @@ export default function AccueilPage() {
                   </svg>
                 </div>
                 <p className="text-sm text-gray-600 mb-2">
-                  <span className="font-semibold text-primary-600">
+                  <span className="font-semibold text-emerald-600">
                     Cliquez pour sélectionner
                   </span>{" "}
                   ou glissez-déposez
